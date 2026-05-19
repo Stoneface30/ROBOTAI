@@ -1,0 +1,14 @@
+# Secrets — never commit
+esphome/secrets.yaml
+.env
+*.env
+
+# ESPHome build cache
+esphome/.esphome/
+
+# PlatformIO
+.pio/
+
+# OS
+.DS_Store
+Thumbs.db
