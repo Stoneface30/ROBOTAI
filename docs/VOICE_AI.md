@@ -80,7 +80,7 @@ ES7210 natively handles the 4-mic TDM array. **The known patch**: stock ES8311 c
    - `faster-whisper` (medium-int8 — fast enough on CPU)
    - `piper` (or wire Wyoming to XTTS-v2 / Kokoro on the GPU later)
    - `openWakeWord` server-side, OR `micro_wake_word` on-device (lower latency, custom training at <https://microwakeword.com>)
-5. **HA Assist pipeline config**: STT = faster-whisper, conversation agent = HA Assist (default) **with Ollama as fallback** for the "prefer handling commands locally, fallback to external" toggle. **Ollama model: `gemma3:4b`** (user choice, 2026-05-21) — Gemma 3 4B parameters, fast first-token on most GPUs, good general Q&A quality. Newer `gemma4:e4b` is also loaded locally if we want to compare. 7B-class and larger are too slow for live voice.
+5. **HA Assist pipeline config**: STT = faster-whisper, conversation agent = HA Assist (default) **with Ollama as fallback** for the "prefer handling commands locally, fallback to external" toggle. **Ollama model: `gemma4:e4b`** (user choice, 2026-05-21) — Gemma 3 4B parameters, fast first-token on most GPUs, good general Q&A quality. Newer `gemma4:e4b` is also loaded locally if we want to compare. 7B-class and larger are too slow for live voice.
 6. **Flash via `esphome run` over USB-C**, then OTA after.
 7. **Validation tests**:
    - Wake word → "turn on the kitchen lights" → HA executes (no LLM)
@@ -97,6 +97,18 @@ ES7210 natively handles the 4-mic TDM array. **The known patch**: stock ES8311 c
 ## What stays from xiaozhi-esp32
 
 Nothing in the long run. The xiaozhi build is kept on OTA slot B purely as a "known good" fallback while the ESPHome path is brought up. Once ESPHome + HA Assist + Ollama is verified end-to-end, the xiaozhi slot can be wiped.
+
+## Voice persona backlog — "Mister Robot"
+
+User wants a distinct voice for the assistant, not stock Piper. Three viable paths, decided after E2E is stable:
+
+| Path | Effort | Quality | Notes |
+|---|---|---|---|
+| Piper custom voice (train from samples) | Weekend project | Good, on-brand | LJSpeech-style training pipeline; ~1 GB of clean audio needed |
+| Swap Piper → **Kokoro TTS** | 1 hour | Very high | Wyoming image `nordwestt/kokoro-wyoming:latest`. Already in RAG. ~50 bundled voices; can pick one or fine-tune |
+| **XTTS-v2** with voice cloning | 1 day | Excellent | 10 sec sample → matched voice. Coqui XTTS-v2 via Wyoming bridge (community projects exist). GPU recommended for low latency |
+
+Open question: do we want Mister Robot to sound like (a) a fictional character (e.g., HAL, Marvin, GLaDOS), (b) a chosen real voice (cloned from samples), or (c) a synthetic warm "assistant" baseline. Defer the question to after Task 5 passes.
 
 ## Sources
 
