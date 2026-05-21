@@ -25,6 +25,19 @@ substitutions:
   i2c_scl: GPIO10
   i2c_sda: GPIO11
 
+  # SPI bus (shared by both GC9A01A displays)
+  lcd_mosi: GPIO42
+  lcd_sclk: GPIO41
+  lcd_dc: GPIO45     # shared between LCD1 and LCD2
+  # LCD1 = left eye
+  lcd1_cs: GPIO47
+  lcd1_rst: GPIO48
+  lcd1_bl: GPIO46
+  # LCD2 = right eye
+  lcd2_cs: GPIO38
+  lcd2_rst: GPIO8
+  lcd2_bl: GPIO39
+
   # Audio formats
   i2s_sample_rate: "16000"
   i2s_mclk_multiple: "256"
@@ -96,6 +109,139 @@ i2c:
     scl: ${i2c_scl}
     scan: true
     frequency: 400kHz
+
+# SPI bus for both GC9A01A displays. DC pin is shared between LCD1 and LCD2;
+# ESPHome arbitrates by CS pin per display platform.
+spi:
+  - id: lcd_spi
+    clk_pin: ${lcd_sclk}
+    mosi_pin: ${lcd_mosi}
+    interface: hardware
+
+# Eye expression state. 0 = idle (calm), 1 = listening (alert),
+# 2 = thinking (looking up), 3 = speaking (active), 4 = error.
+globals:
+  - id: eye_state
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: blink_phase
+    type: int
+    restore_value: no
+    initial_value: '0'  # 0=open, 1=closed (set by blink_timer)
+
+# Backlights — direct GPIO, active HIGH (verified Waveshare convention)
+output:
+  - platform: gpio
+    pin: ${lcd1_bl}
+    id: bl_left_out
+  - platform: gpio
+    pin: ${lcd2_bl}
+    id: bl_right_out
+
+light:
+  - platform: binary
+    output: bl_left_out
+    id: bl_left
+    name: Left Eye Backlight
+    restore_mode: ALWAYS_ON
+  - platform: binary
+    output: bl_right_out
+    id: bl_right
+    name: Right Eye Backlight
+    restore_mode: ALWAYS_ON
+
+display:
+  - platform: mipi_spi
+    model: GC9A01A
+    id: left_eye
+    spi_id: lcd_spi
+    cs_pin: ${lcd1_cs}
+    dc_pin:
+      number: ${lcd_dc}
+      allow_other_uses: true
+    reset_pin: ${lcd1_rst}
+    invert_colors: true
+    update_interval: 100ms   # 10 FPS — enough for face animation, cheap on CPU
+    lambda: |-
+      const int W = 240, H = 240;
+      const int cx = W / 2, cy = H / 2;
+      const int state = id(eye_state);
+      const bool blinking = id(blink_phase) == 1;
+      // Background
+      it.fill(Color(0, 0, 0));
+      // Blink overrides everything — closed eye = horizontal slit
+      if (blinking) {
+        it.filled_rectangle(0, cy - 6, W, 12, Color(255, 255, 255));
+        return;
+      }
+      // Sclera (white eye)
+      Color sclera = (state == 4) ? Color(255, 60, 60) : Color(255, 255, 255);
+      it.filled_circle(cx, cy, 110, sclera);
+      // Pupil — size + offset varies by state
+      int pupil_r = 38;
+      int px = cx, py = cy;
+      switch (state) {
+        case 1: pupil_r = 52; break;                          // listening — dilated
+        case 2: py = cy - 35; pupil_r = 34; break;            // thinking — look up
+        case 3: pupil_r = 44; break;                          // speaking — slightly enlarged
+        case 4: pupil_r = 30; break;                          // error — small pinprick
+        default: pupil_r = 38; break;                         // idle
+      }
+      it.filled_circle(px, py, pupil_r, Color(0, 0, 0));
+      // Catch-light highlight (small white dot in pupil)
+      it.filled_circle(px + pupil_r / 3, py - pupil_r / 3, 6, Color(255, 255, 255));
+
+  - platform: mipi_spi
+    model: GC9A01A
+    id: right_eye
+    spi_id: lcd_spi
+    cs_pin: ${lcd2_cs}
+    dc_pin:
+      number: ${lcd_dc}
+      allow_other_uses: true
+    reset_pin: ${lcd2_rst}
+    invert_colors: true
+    transform:
+      mirror_x: true
+      mirror_y: true
+      swap_xy: false
+    update_interval: 100ms
+    lambda: |-
+      const int W = 240, H = 240;
+      const int cx = W / 2, cy = H / 2;
+      const int state = id(eye_state);
+      const bool blinking = id(blink_phase) == 1;
+      it.fill(Color(0, 0, 0));
+      if (blinking) {
+        it.filled_rectangle(0, cy - 6, W, 12, Color(255, 255, 255));
+        return;
+      }
+      Color sclera = (state == 4) ? Color(255, 60, 60) : Color(255, 255, 255);
+      it.filled_circle(cx, cy, 110, sclera);
+      int pupil_r = 38;
+      int px = cx, py = cy;
+      switch (state) {
+        case 1: pupil_r = 52; break;
+        case 2: py = cy - 35; pupil_r = 34; break;
+        case 3: pupil_r = 44; break;
+        case 4: pupil_r = 30; break;
+        default: pupil_r = 38; break;
+      }
+      it.filled_circle(px, py, pupil_r, Color(0, 0, 0));
+      it.filled_circle(px + pupil_r / 3, py - pupil_r / 3, 6, Color(255, 255, 255));
+
+# Random idle blink every ~3-7 seconds. Closes for 120 ms.
+interval:
+  - interval: 4s
+    then:
+      - if:
+          condition:
+            lambda: 'return id(eye_state) == 0;'   # only blink when idle
+          then:
+            - lambda: 'id(blink_phase) = 1;'
+            - delay: 120ms
+            - lambda: 'id(blink_phase) = 0;'
 
 # Two i2s_audio buses share LRCK/BCLK between speaker (output) and mic (input).
 # ESPHome ≥2025 requires explicit allow_other_uses on shared pins.
@@ -247,11 +393,26 @@ voice_assistant:
   volume_multiplier: 1.0
   on_client_connected:
     - micro_wake_word.start:
+    - lambda: 'id(eye_state) = 0;'
     - logger.log: "HA connected — wake word active"
   on_client_disconnected:
     - voice_assistant.stop:
+    - lambda: 'id(eye_state) = 4;'
     - logger.log: "HA disconnected"
+  on_listening:
+    - lambda: 'id(eye_state) = 1;'   # eyes wide / dilated pupil
+  on_stt_vad_start:
+    - lambda: 'id(eye_state) = 1;'   # still listening (voice detected)
+  on_stt_vad_end:
+    - lambda: 'id(eye_state) = 2;'   # thinking (look up)
+  on_tts_start:
+    - lambda: 'id(eye_state) = 3;'   # speaking
+  on_end:
+    - lambda: 'id(eye_state) = 0;'   # back to idle
   on_error:
+    - lambda: 'id(eye_state) = 4;'
+    - delay: 2s
+    - lambda: 'id(eye_state) = 0;'
     - logger.log:
         format: "Voice assistant error: %s"
         args: ["code.c_str()"]
