@@ -1,0 +1,288 @@
+# Waveshare ESP32-S3-DualEye-LCD-1.28 — ROBOTAI head unit
+#
+# Task 3 (audio path only). Task 4 adds the two GC9A01A eyes.
+#
+# Pin map is verified against the official Waveshare repo:
+#   github.com/waveshareteam/ESP32-S3-DualEye-Touch-LCD-1.28
+# (see docs/hardware.md and L-rule rule-vendor-reference-first.md)
+#
+# ES8311 master-mode patch is vendored at esphome/components/es8311/
+# (see esphome/components/es8311/ATTRIBUTION.md for provenance).
+
+substitutions:
+  device_name: dualeye
+  friendly: Robot Head
+
+  # Audio bus pins (DualEye)
+  i2s_mclk: GPIO12
+  i2s_bclk: GPIO13
+  i2s_lrclk: GPIO14
+  i2s_din: GPIO15    # ES7210 mic → ESP32
+  i2s_dout: GPIO16   # ESP32 → ES8311 speaker
+  pa_enable: GPIO9   # ES8311 PA amplifier enable (active HIGH)
+
+  # I2C bus 1 — ES8311, ES7210, QMI8658 IMU
+  i2c_scl: GPIO10
+  i2c_sda: GPIO11
+
+  # Audio formats
+  i2s_sample_rate: "16000"
+  i2s_mclk_multiple: "256"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly}
+  min_version: 2025.8.0
+  platformio_options:
+    board_build.flash_mode: dio
+
+esp32:
+  board: esp32-s3-devkitc-1
+  variant: esp32s3
+  cpu_frequency: 240MHz
+  flash_size: 16MB
+  framework:
+    type: esp-idf
+    version: recommended
+    sdkconfig_options:
+      CONFIG_ESP32S3_DATA_CACHE_64KB: "y"
+      CONFIG_ESP32S3_DATA_CACHE_LINE_64B: "y"
+      CONFIG_ESP32S3_INSTRUCTION_CACHE_32KB: "y"
+      # microWakeWord runs faster with code+data in PSRAM
+      CONFIG_SPIRAM_RODATA: "y"
+      CONFIG_SPIRAM_FETCH_INSTRUCTIONS: "y"
+      CONFIG_MBEDTLS_EXTERNAL_MEM_ALLOC: "y"
+
+psram:
+  mode: octal
+  speed: 80MHz
+
+logger:
+  level: INFO   # bump to DEBUG when troubleshooting audio
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  power_save_mode: none
+  reboot_timeout: 10min
+  ap:
+    ssid: "DualEye Setup"
+    password: !secret ap_fallback_password
+
+captive_portal:
+
+api:
+  encryption:
+    key: !secret api_key_dualeye
+
+ota:
+  - platform: esphome
+    password: !secret ota_dualeye
+
+time:
+  - platform: homeassistant
+    id: time_ha
+
+# Local ES8311 master-mode patch (esphome/components/es8311/)
+external_components:
+  - source:
+      type: local
+      path: components
+    components: [es8311]
+
+i2c:
+  - id: internal_i2c
+    sda: ${i2c_sda}
+    scl: ${i2c_scl}
+    scan: true
+    frequency: 400kHz
+
+# Two i2s_audio buses share LRCK/BCLK between speaker (output) and mic (input).
+# ESPHome ≥2025 requires explicit allow_other_uses on shared pins.
+i2s_audio:
+  - id: i2s_out
+    i2s_lrclk_pin:
+      number: ${i2s_lrclk}
+      allow_other_uses: true
+    i2s_bclk_pin:
+      number: ${i2s_bclk}
+      allow_other_uses: true
+    i2s_mclk_pin: ${i2s_mclk}
+
+  - id: i2s_in
+    i2s_lrclk_pin:
+      number: ${i2s_lrclk}
+      allow_other_uses: true
+    i2s_bclk_pin:
+      number: ${i2s_bclk}
+      allow_other_uses: true
+
+audio_dac:
+  - platform: es8311
+    id: es8311_dac
+    i2c_id: internal_i2c
+    address: 0x18
+    sample_rate: ${i2s_sample_rate}
+    bits_per_sample: 16bit
+    use_mclk: true
+    use_microphone: false   # we use ES7210 for capture, not ES8311's mic
+    force_master: true      # OUR patched component drives BCLK/LRCK so ES7210 is the slave
+    mclk_multiple: 256
+
+audio_adc:
+  - platform: es7210
+    id: es7210_adc
+    i2c_id: internal_i2c
+    sample_rate: ${i2s_sample_rate}
+    bits_per_sample: 16bit
+    # ES7210 default address 0x40; tdm mode is on by default for the 4-mic array
+
+microphone:
+  - platform: i2s_audio
+    id: mic
+    i2s_audio_id: i2s_in
+    i2s_din_pin: ${i2s_din}
+    adc_type: external
+    pdm: false
+    i2s_mode: secondary   # ES8311 is bus master; mic ADC is slave
+    sample_rate: ${i2s_sample_rate}
+    bits_per_sample: 16bit
+    use_apll: true
+    mclk_multiple: 256
+    channel: left          # ES7210 mic 1 of 4 (TDM left channel)
+
+speaker:
+  - platform: i2s_audio
+    id: spk
+    i2s_audio_id: i2s_out
+    i2s_dout_pin: ${i2s_dout}
+    audio_dac: es8311_dac
+    dac_type: external
+    i2s_mode: secondary    # ESPHome side is secondary; our patched ES8311 is master
+    timeout: never
+    buffer_duration: 100ms
+    sample_rate: ${i2s_sample_rate}
+    bits_per_sample: 16bit
+    use_apll: true
+    mclk_multiple: 256
+    channel: mono
+
+  # Mixer pipeline so HA media announcements and voice TTS share the speaker
+  - platform: mixer
+    id: spk_mixer
+    output_speaker: spk
+    num_channels: 1
+    source_speakers:
+      - id: spk_announcement_in
+        timeout: never
+      - id: spk_media_in
+        timeout: never
+
+  - platform: resampler
+    id: spk_announcement_resampler
+    output_speaker: spk_announcement_in
+  - platform: resampler
+    id: spk_media_resampler
+    output_speaker: spk_media_in
+
+media_player:
+  - platform: speaker
+    id: head_media_player
+    name: Robot Head Speaker
+    volume_increment: 0.05
+    volume_min: 0.3
+    volume_max: 0.9
+    announcement_pipeline:
+      speaker: spk_announcement_resampler
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+    media_pipeline:
+      speaker: spk_media_resampler
+      format: FLAC
+      num_channels: 1
+      sample_rate: 48000
+
+# PA amp enable — kept ON by default so speaker is live
+switch:
+  - platform: gpio
+    id: pa_enable_switch
+    name: Speaker Amp
+    icon: mdi:speaker
+    pin: ${pa_enable}
+    restore_mode: RESTORE_DEFAULT_ON
+
+  - platform: template
+    id: mic_mute
+    name: Microphone Mute
+    icon: mdi:microphone-off
+    optimistic: true
+    restore_mode: RESTORE_DEFAULT_OFF
+
+micro_wake_word:
+  id: mww
+  microphone:
+    microphone: mic
+    channels: 0
+  stop_after_detection: false
+  models:
+    # Default bundled model. Custom "Mister Robot" wake word is in the backlog
+    # (see docs/VOICE_AI.md → voice persona section). Train at microwakeword.com
+    # and swap the model URL when ready.
+    - model: okay_nabu
+      id: okay_nabu
+  vad:
+    probability_cutoff: 0.5
+
+voice_assistant:
+  id: va
+  microphone:
+    microphone: mic
+    channels: 0
+  media_player: head_media_player
+  micro_wake_word: mww
+  use_wake_word: false
+  noise_suppression_level: 2
+  auto_gain: 31dBFS
+  volume_multiplier: 1.0
+  on_client_connected:
+    - micro_wake_word.start:
+    - logger.log: "HA connected — wake word active"
+  on_client_disconnected:
+    - voice_assistant.stop:
+    - logger.log: "HA disconnected"
+  on_error:
+    - logger.log:
+        format: "Voice assistant error: %s"
+        args: ["code.c_str()"]
+
+button:
+  - platform: restart
+    id: restart_button
+    name: Restart
+    entity_category: config
+    icon: mdi:restart
+  - platform: factory_reset
+    id: factory_reset_button
+    name: Factory Reset
+    entity_category: diagnostic
+    disabled_by_default: true
+
+binary_sensor:
+  - platform: gpio
+    pin:
+      number: GPIO0
+      mode:
+        input: true
+        pullup: true
+      inverted: true
+    name: Boot Button
+    on_click:
+      - min_length: 50ms
+        max_length: 500ms
+        then:
+          - voice_assistant.start:
+      - min_length: 1500ms
+        max_length: 5000ms
+        then:
+          - switch.toggle: mic_mute

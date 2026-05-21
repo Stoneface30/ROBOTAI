@@ -5,6 +5,7 @@ esphome/secrets.yaml
 
 # ESPHome build cache
 esphome/.esphome/
+esphome/components/**/__pycache__/
 
 # PlatformIO
 .pio/
