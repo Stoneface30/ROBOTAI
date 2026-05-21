@@ -12,3 +12,14 @@ esphome/.esphome/
 # OS
 .DS_Store
 Thumbs.db
+
+# Embedded xiaozhi-esp32 fork — has its own git repo (Stoneface30 fork upstream)
+xiaozhi-esp32/
+
+# Claude worktrees + agent caches
+.claude/
+
+# ESP-IDF build artifacts (in case anyone builds inside the project dir)
+build_dualeye/
+build/
+sdkconfig.old

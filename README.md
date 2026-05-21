@@ -1,29 +1,72 @@
-# ROBOTAI — ESP32-CAM Robot Vision with Home Assistant
+# ROBOTAI — Home Robot Head Unit + Vision + Voice AI
 
-> **ESP32-CAM (AI-Thinker OV2640) → ESPHome → Home Assistant → OTA-only deployment**  
-> Dead flashing board? No problem. Full journey documented — UART rescue, esptool surgery, OTA freedom.
+> **Two-board robot brain:** Waveshare ESP32-S3-DualEye (head + voice) + ESP32-CAM (vision) → Home Assistant on Windows 11 → Local LLM via Ollama → Fully local, OTA-managed.
 
 ---
 
+## Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│            Windows 11 host (Home Assistant + Ollama)        │
+│   HA Assist pipeline · qwen2.5 · gemma3 · Frigate (planned) │
+└──────────┬──────────────────────────┬───────────────────────┘
+           │ ESPHome native API       │ Wyoming protocol or
+           │ (MJPEG camera stream)    │ custom audio stream
+           │                          │   (see VOICE_AI.md)
+┌──────────▼──────────┐  ┌────────────▼──────────────────────┐
+│   ESP32-CAM         │  │  Waveshare ESP32-S3-DualEye-1.28  │
+│   (Vision module)   │  │  (Head unit / Brain)              │
+│                     │  │                                   │
+│  OV2640 camera      │  │  2× 240×240 round LCD "eyes"      │
+│  MJPEG → HA         │  │  ES8311 codec + 8Ω speaker        │
+│  ESPHome firmware   │  │  ES7210 4-mic array               │
+│  OTA via WiFi       │  │  Wake-word + STT/TTS via LAN      │
+│                     │  │  GC9A01A panels @ 80 MHz SPI      │
+│  Connects to head   │  │  WiFi 2.4GHz + BLE 5.0            │
+│  unit via SH1.0     │  │  USB-C native + CH343P UART       │
+│  expansion header   │  │                                   │
+│  (5V + UART)        │  │  xiaozhi-esp32 firmware (current) │
+└─────────────────────┘  │  Voice-AI stack: see VOICE_AI.md  │
+                         └───────────────────────────────────┘
+```
+
 ## What This Is
 
-An AI-Thinker ESP32-CAM module (OV2640 camera, 4MB Flash, 8MB PSRAM) running ESPHome firmware as the vision system for a home robot. Streams MJPEG video to Home Assistant. Fully OTA-managed — once flashed, zero physical access needed.
+A home robot with two ESP32-class boards:
 
-This repo documents the complete journey: hardware research, a dead programmer board, a UART rescue flash, two firmware bugs fixed, and a working camera live in Home Assistant.
+1. **Head unit** — Waveshare ESP32-S3-DualEye-LCD-1.28 (WS-32267)
+   - Two round 1.28" GC9A01A displays = animated robot eyes
+   - ES8311 + ES7210 audio chain (8Ω speaker out, 4-mic array in)
+   - QMI8658 IMU on I2C bus 1
+   - 16MB flash, 8MB PSRAM, BLE 5.0, WiFi 2.4GHz
+   - Currently runs a customised `xiaozhi-esp32` fork. Voice-AI stack pending — see `VOICE_AI.md` once research completes
+
+2. **Vision module** — AI-Thinker ESP32-CAM
+   - OV2640 sensor, ESPHome firmware, MJPEG → HA
+   - Powered + tethered to head unit via SH1.0 expansion header (5V + serial)
+
+Both run fully on the LAN. Server side: Home Assistant + Ollama on Windows 11.
+
+This repo documents the complete journey: rescuing a dead programmer board, the ESP32-CAM brought up via UART, the DualEye debugged from "black screens" caused by hallucinated MOSI/MISO pin assignments, and the voice AI stack chosen via research (see `VOICE_AI.md`).
 
 ---
 
 ## Key Accomplishments
 
+### ESP32-CAM (vision)
 - **Dead MB board bypass** — The CH340C USB chip on the diymore ESP32-CAM-MB programmer board was dead on arrival. Pivoted to a DollaTek CP2104 6-pin UART adapter as a direct programmer — 5V, GND, TX→RX, RX→TX, IO0→GND for bootloader mode.
 
-- **esptool environment surgery** — PlatformIO's `tool-esptoolpy` package installed as a broken editable pip install pointing at an empty directory (MinGW/Git Bash blocked `idf_tools.py`). Fix: uninstall the editable install, reinstall `esptool==5.2.0` from PyPI into PlatformIO's `penv` — build succeeds, binary generated.
+- **esptool environment surgery** — PlatformIO's `tool-esptoolpy` package installed as a broken editable pip install pointing at an empty directory (MinGW/Git Bash blocked `idf_tools.py`). Fix: uninstall the editable install, reinstall `esptool==5.2.0` from PyPI into PlatformIO's `penv`.
 
-- **Camera init fixed via power_down_pin** — First flash showed `ESP_ERR_NOT_SUPPORTED` from camera probe despite correct pinout and seated ribbon. Root cause: `reset_pin: GPIO15` was incorrectly driving a strapping pin; `power_down_pin: GPIO32` was missing (needed to wake OV2640). Second OTA flash fixed both.
+- **Camera init fixed** — Root cause of `ESP_ERR_NOT_SUPPORTED`: `reset_pin: GPIO15` was driving a strapping pin; `power_down_pin: GPIO32` was missing (needed to wake OV2640). Fixed via OTA.
 
-- **Full OTA from first WiFi boot** — Board connected to WiFi on first boot. All subsequent firmware updates pushed wirelessly — no physical access to the robot ever needed again.
+- **Full OTA from first boot** — Live in HA as `camera.robot_cam_robot_eye` (0.1fps idle → 10fps on demand).
 
-- **Live in Home Assistant** — `camera.robot_cam_robot_eye` entity active. Idle at 0.1fps, streams at 10fps on demand.
+### DualEye head unit
+- **Black-screen debug** — Both displays dark despite "panel create success" log messages. Root cause: pin assignments in our board file (commit 55bc2ba) were guessed, not pulled from Waveshare's reference. **MOSI was on GPIO40, MISO on GPIO42 — they need to be swapped.** SPI commands were being sent out the panel's input pin the whole time; the GC9A01 driver reports init success regardless of physical wiring. Also wrong: audio DIN/DOUT swapped, `AUDIO_CODEC_PA_PIN` set to `NC` instead of `GPIO9`, `DISPLAY_SWAP_XY` wrong, LCD2 mirror flags missing. Fix: copy the canonical config from `waveshareteam/ESP32-S3-DualEye-Touch-LCD-1.28` GitHub repo verbatim.
+- **Permanent rule extracted** — `Vault/rules/rule-vendor-reference-first.md`: never guess pin assignments for vendor boards; fetch the canonical reference first. Driver "init success" messages prove nothing about wiring.
+- **Live state** — both displays render, WiFi connects, audio codec (ES8311+ES7210) initializes, MCP tools registered. Speaker hardware connected. Right-eye mirroring of left-eye content pending (currently shows GRAM static — LCD2 is initialized but no content is being drawn to it).
 
 ---
 
