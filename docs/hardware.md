@@ -113,18 +113,59 @@ Active **HIGH** on both BL pins. `DISPLAY_BACKLIGHT_OUTPUT_INVERT = false`.
 
 ## DualEye ↔ ESP32-CAM Tether (SH1.0 14-pin Header)
 
-The ESP32-CAM is mounted on the robot and powered + linked via the DualEye's SH1.0 expansion header — no separate USB cable in the field.
+> Vendor-verified against the official schematic (`files.waveshare.com/wiki/ESP32-S3-DualEye-LCD-1.28/ESP32-S3-DualEye-LCD-1.28-Schematic.pdf`, dated 2025-08-28) and the vendor docs at <https://docs.waveshare.com/ESP32-S3-DualEye-LCD-1.28>. Re-audit triggers: vendor schematic revision change, new SH1.0 cable variant.
 
-| SH1.0 Pin | DualEye signal | ESP32-CAM wire | Purpose |
+### SH1.0 14-pin pinout — LCD1-Board side (P1 in schematic)
+
+The DualEye has **two** SH1.0 14-pin connectors (one on each LCD sub-board, refdes `P1` and `P2`). Use **LCD1-Board (`P1`)** for tethered peripherals — the LCD2-Board (`P2`) header carries different signals (display SPI lines for LCD2).
+
+| Pin | Signal (vendor verbatim) | What it does | Notes |
 |---|---|---|---|
-| 1 | USB_5V (5V passthrough from USB-C) | 5V (right col pin 5) | Power |
-| GND pin | GND | GND (right col pin 4) | Common ground |
-| GPIO43 (UART TX) | UART TX | UDR (right col pin 6, RX) | Head → cam control |
-| GPIO44 (UART RX) | UART RX | UDT (right col pin 7, TX) | Cam → head telemetry |
+| 1 | `USB_5V` | 5V power | **Bidirectional**: output ~4.55-4.70 V when USB-C is plugged into the DualEye (VBUS minus D1 Schottky Vf). Also accepts external 5V input to power the whole board when USB-C is unplugged. ≤ 2 A through D1 (MBR230LSFT1G); minus board self-draw, ~1.5 A available to peripherals worst case. |
+| 2 | `GND` | Common ground | |
+| 3 | `D_N` | USB D− (negative) | Mirrored from USB-C — for tethered USB peripherals, not used by our cam tether |
+| 4 | `D_P` | USB D+ (positive) | Same as Pin 3 |
+| 5 | `3V3` | 3.3V power | OUTPUT from MP1605GTF-Z buck converter. 3.314 V, ≤ 2 A capability (board uses some), always-on when board is powered. **Use this if the cam's onboard AMS1117 is dead** — feed straight to cam's 3V3 pin to bypass the regulator. |
+| 6 | `GND` | Common ground | |
+| 7 | `SDA` | I2C SDA (bus 1) | Same I2C bus as ES8311 + ES7210 + QMI8658 |
+| 8 | `SCL` | I2C SCL (bus 1) | |
+| 9 | `UART_RXD` | ESP32-S3 UART RX | Connects to peripheral's TX (cam's U0T) |
+| 10 | `UART_TXD` | ESP32-S3 UART TX | Connects to peripheral's RX (cam's U0R) |
+| 11 | `TP2_SDA` | Touch-panel I2C (unused on non-touch variant) | |
+| 12 | `TP2_SCL` | Touch-panel I2C | |
+| 13 | `GPIO0` | ESP32-S3 GPIO0 | Boot strap — leave floating after flash |
+| 14 | `RESET` | ESP32-S3 RESET | Used by USB-C autoreset circuit |
 
-⚠ Use SH1.0 **Pin 1 (USB_5V)**, not Pin 5 (3V3 rail). The ESP32-CAM has its own AMS1117 onboard 3V3 regulator and needs 5V input. Wiring it to 3V3 will brown out the OV2640 every time WiFi spikes current.
+### Power tree (from schematic page 1)
 
-Flashing the ESP32-CAM after deployment: OTA only. The DualEye also exposes the UART to the cam, so a future enhancement is a serial passthrough for emergency rescue if OTA breaks.
+```
+USB-C J1 VBUS ─► D1 MBR230LSFT1G ─► net "USB_5V" ─┬─► P1.1 (SH1.0 Pin 1, LCD1-Board)
+                (Schottky, 2A,                    ├─► P2.1 (SH1.0 Pin 1, LCD2-Board)
+                 ~0.45V Vf)                       ├─► U1 ETA6098 (charger/power-path IC)
+                                                  └─► U2 MP1605GTF-Z buck ─► net "3V3" ─► P1.5, P2.5
+```
+
+### ESP32-CAM cam-side wiring (4-wire tether)
+
+| DualEye SH1.0 (LCD1-Board) | ESP32-CAM AI-Thinker header | Purpose |
+|---|---|---|
+| Pin 1 `USB_5V` | `5V` pin (left column, top, red label on the AI-Thinker pinout) | Power |
+| Pin 2 `GND` | Any `GND` pin | Common ground |
+| Pin 9 `UART_RXD` | `U0T` (UART TX out of cam) | Head ← cam |
+| Pin 10 `UART_TXD` | `U0R` (UART RX into cam) | Head → cam |
+
+⚠ **Do NOT wire to the cam's `3.3V/5V` (yellow) pin** — that's `P_OUT` (regulator output), not an input.
+
+⚠ **SH1.0 FPC cable orientation matters.** Pin 14 ↔ Pin 1 reversal is the #1 wiring mistake — would drive 5V into the RESET line. Use the polarity key on the connector to verify both ends match.
+
+### Diagnostic order if the cam doesn't boot from the tether
+
+1. Both DualEye LCDs (eyes) currently rendering? If no → USB-C cable doesn't pass VBUS (try a known charging cable).
+2. Measure DC Pin 1 → Pin 2 at the DualEye SH1.0 socket. Expect ~4.55–4.70 V. If 0 V → D1 Schottky failed open.
+3. With FPC plugged into both ends, measure same Pins 1→2 at the cam end of the cable. If 0 V here but 4.6 V at step 2 → FPC reversed or broken.
+4. Bench supply 5V directly to cam's 5V/GND pins (skip the SH1.0). If cam boots → SH1.0 path is broken. If not → cam's 5V pad solder joint is open.
+
+Flashing the cam after deployment: OTA only. The UART pins (Pin 9/10) also allow serial recovery from the head unit if OTA ever breaks.
 
 ---
 
