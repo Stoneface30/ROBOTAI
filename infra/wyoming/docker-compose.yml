@@ -1,0 +1,60 @@
+# Wyoming voice services for HA Container installs (no Supervisor / no add-ons).
+# Runs the same three services that HA OS users get from the add-on store:
+#   - faster-whisper  (STT, port 10300)
+#   - piper           (TTS, port 10200)
+#   - openwakeword    (wake word, port 10400)
+#
+# Start:  docker compose -f F:\ROBOTAI\infra\wyoming\docker-compose.yml up -d
+# Stop:   docker compose -f F:\ROBOTAI\infra\wyoming\docker-compose.yml down
+# Logs:   docker compose -f F:\ROBOTAI\infra\wyoming\docker-compose.yml logs -f
+#
+# After services are up, in HA add the "Wyoming Protocol" integration three times:
+#   1. Host = host.docker.internal (if HA is also in Docker on this box)
+#         OR <your Windows LAN IP> if HA is on a separate machine
+#      Port = 10300 (Whisper) → Whisper service discovered
+#   2. Same host, port 10200 → Piper service discovered
+#   3. Same host, port 10400 → openWakeWord service discovered
+
+services:
+  faster-whisper:
+    image: rhasspy/wyoming-whisper:latest
+    container_name: wyoming-whisper
+    restart: unless-stopped
+    ports:
+      - "10300:10300"
+    volumes:
+      - whisper-data:/data
+    command: >
+      --model small-int8
+      --language en
+      --beam-size 1
+      --uri tcp://0.0.0.0:10300
+
+  piper:
+    image: rhasspy/wyoming-piper:latest
+    container_name: wyoming-piper
+    restart: unless-stopped
+    ports:
+      - "10200:10200"
+    volumes:
+      - piper-data:/data
+    command: >
+      --voice en_US-amy-medium
+      --uri tcp://0.0.0.0:10200
+
+  openwakeword:
+    image: rhasspy/wyoming-openwakeword:latest
+    container_name: wyoming-openwakeword
+    restart: unless-stopped
+    ports:
+      - "10400:10400"
+    volumes:
+      - openwakeword-data:/data
+    command: >
+      --preload-model hey_jarvis
+      --uri tcp://0.0.0.0:10400
+
+volumes:
+  whisper-data:
+  piper-data:
+  openwakeword-data:
