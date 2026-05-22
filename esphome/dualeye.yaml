@@ -72,6 +72,27 @@ psram:
 
 logger:
   level: INFO   # bump to DEBUG when troubleshooting audio
+  # Hardware UART on GPIO43/44 is repurposed to read the tethered ESP32-CAM's
+  # boot log (SH1.0 Pin 9/10). Logger output goes via WiFi (native API) only —
+  # access with: esphome logs dualeye.yaml --device dualeye.local
+  hardware_uart: USB_SERIAL_JTAG
+
+# UART bridge — reads the ESP32-CAM's TX line (cam's boot output) via SH1.0 Pin 9.
+# Cam's TX (U0T pin) → SH1.0 Pin 9 (DualEye UART_RXD) → GPIO44 here.
+# Every line the cam prints lands in the DualEye logger as CAM_LOG: <line>.
+uart:
+  id: cam_uart
+  rx_pin: GPIO44
+  baud_rate: 115200
+  rx_buffer_size: 1024
+  debug:
+    direction: RX
+    after:
+      delimiter: "\n"
+    sequence:
+      - lambda: |-
+          std::string line(bytes.begin(), bytes.end());
+          ESP_LOGI("CAM_LOG", "%s", line.c_str());
 
 wifi:
   ssid: !secret wifi_ssid
