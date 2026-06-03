@@ -264,8 +264,10 @@ interval:
             - delay: 120ms
             - lambda: 'id(blink_phase) = 0;'
 
-# Two i2s_audio buses share LRCK/BCLK between speaker (output) and mic (input).
+# Two i2s_audio buses share LRCK/BCLK/MCLK between speaker (output) and mic (input).
 # ESPHome ≥2025 requires explicit allow_other_uses on shared pins.
+# i2s_in must also declare MCLK so the ESP-IDF capture peripheral outputs the clock
+# on GPIO12 — without it the ES7210 slave ADC starves and wake word detection fails.
 i2s_audio:
   - id: i2s_out
     i2s_lrclk_pin:
@@ -274,7 +276,9 @@ i2s_audio:
     i2s_bclk_pin:
       number: ${i2s_bclk}
       allow_other_uses: true
-    i2s_mclk_pin: ${i2s_mclk}
+    i2s_mclk_pin:
+      number: ${i2s_mclk}
+      allow_other_uses: true
 
   - id: i2s_in
     i2s_lrclk_pin:
@@ -282,6 +286,9 @@ i2s_audio:
       allow_other_uses: true
     i2s_bclk_pin:
       number: ${i2s_bclk}
+      allow_other_uses: true
+    i2s_mclk_pin:
+      number: ${i2s_mclk}
       allow_other_uses: true
 
 audio_dac:
@@ -385,6 +392,11 @@ switch:
     icon: mdi:microphone-off
     optimistic: true
     restore_mode: RESTORE_DEFAULT_OFF
+    turn_on_action:
+      - micro_wake_word.stop:
+      - voice_assistant.stop:
+    turn_off_action:
+      - micro_wake_word.start:
 
 micro_wake_word:
   id: mww
@@ -417,6 +429,7 @@ voice_assistant:
     - lambda: 'id(eye_state) = 0;'
     - logger.log: "HA connected — wake word active"
   on_client_disconnected:
+    - micro_wake_word.stop:
     - voice_assistant.stop:
     - lambda: 'id(eye_state) = 4;'
     - logger.log: "HA disconnected"

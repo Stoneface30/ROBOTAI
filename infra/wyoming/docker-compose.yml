@@ -25,7 +25,7 @@ services:
     volumes:
       - whisper-data:/data
     command: >
-      --model small-int8
+      --model medium-int8
       --language en
       --beam-size 1
       --uri tcp://0.0.0.0:10300
@@ -42,6 +42,11 @@ services:
       --voice en_US-amy-medium
       --uri tcp://0.0.0.0:10200
 
+  # NOTE: The DualEye firmware uses on-device micro_wake_word (model: okay_nabu)
+  # with voice_assistant.use_wake_word: false — this container is NOT called by
+  # the DualEye. Keep it only if you add other voice satellites that use
+  # server-side wake word detection. If the DualEye is your only satellite,
+  # comment out this service to save RAM.
   openwakeword:
     image: rhasspy/wyoming-openwakeword:latest
     container_name: wyoming-openwakeword
@@ -51,7 +56,7 @@ services:
     volumes:
       - openwakeword-data:/data
     command: >
-      --preload-model hey_jarvis
+      --preload-model okay_nabu
       --uri tcp://0.0.0.0:10400
 
 volumes:

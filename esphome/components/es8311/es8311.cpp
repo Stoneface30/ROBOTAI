@@ -45,9 +45,10 @@ void ES8311::setup() {
   ES8311_ERROR_FAILED(this->write_byte(ES8311_REG1C_ADC, 0x6A));
   // Bypass DAC equalizer
   ES8311_ERROR_FAILED(this->write_byte(ES8311_REG37_DAC, 0x08));
-  // Power On
-  ES8311_ERROR_FAILED(this->write_byte(ES8311_REG00_RESET, 0x80));
-  // Power On (preserve/keep MSC if we forced master)
+  // Power On — read REG00, set power-on bit, preserve MSC if force_master.
+  // Do NOT write 0x80 unconditionally first: that clears MSC (bit 6) which
+  // configure_format_() just set, creating a transient slave-mode window on
+  // the shared I2S bus while ES7210 is also initialising.
   uint8_t reg00_po = 0;
   ES8311_ERROR_FAILED(this->read_byte(ES8311_REG00_RESET, &reg00_po));
   reg00_po |= 0x80;              // power on bit
@@ -65,10 +66,6 @@ void ES8311::dump_config() {
                 "  DAC Bits per Sample: %" PRIu8 "\n"
                 "  Sample Rate: %" PRIu32,
                 YESNO(this->use_mclk_), YESNO(this->use_mic_), this->resolution_out_, this->sample_frequency_);
-//  ESP_LOGCONFIG(TAG, "  I2S Role: %s", this->force_master_ ? "MASTER (driving BCLK/LRCK)" : "SLAVE");
-//  ESP_LOGCONFIG(TAG, "  MCLK multiple (codec): %" PRIu32 "  (MCLK ~= %" PRIu32 " Hz)", this->mclk_multiple_, this->sample_frequency_ * this->mclk_multiple_);
-
-
   // Report I2S master/slave role
   uint8_t reg00 = 0;
   if (this->read_byte(ES8311_REG00_RESET, &reg00)) {
@@ -110,15 +107,6 @@ void ES8311::dump_config() {
   } else {
     ESP_LOGCONFIG(TAG, "  (Some register reads failed; bus busy or codec not ready)");
   }  
-
-  /*/Debug
-  uint8_t r00,r06,r07,r08;
-  read_byte(ES8311_REG00_RESET,&r00);
-  read_byte(ES8311_REG06_CLK_MANAGER,&r06);
-  read_byte(ES8311_REG07_CLK_MANAGER,&r07);
-  read_byte(ES8311_REG08_CLK_MANAGER,&r08);
-  ESP_LOGCONFIG(TAG, "REG00=0x%02X REG06=0x%02X REG07=0x%02X REG08=0x%02X", r00,r06,r07,r08);
-  */
 
   if (this->is_failed()) {
     ESP_LOGCONFIG(TAG, "  Failed to initialize!");
