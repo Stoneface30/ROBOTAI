@@ -1,0 +1,15 @@
+{
+  "wake_word": "Mister Robot",
+  "author": "Family training \u2014 microWakeWord",
+  "website": "",
+  "model": "mister_robot.tflite",
+  "opaque_model_data_v2": {
+    "tensor_arena_size": 32768,
+    "probability_cutoff": 0.5,
+    "sliding_window_average_size": 10
+  },
+  "version": 2,
+  "micro": {
+    "minimum_esphome_version": "2024.2.0"
+  }
+}

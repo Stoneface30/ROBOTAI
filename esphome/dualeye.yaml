@@ -405,16 +405,8 @@ micro_wake_word:
     channels: 0
   stop_after_detection: false
   models:
-    # === INTERIM MODEL — swap when "Mister Robot" training is complete ===
-    # To activate the custom wake word:
-    #   1. Finish recording + training (see tools/record_wake_word.py)
-    #   2. Host the output JSON + tflite on GitHub (raw URL) or local server
-    #   3. Replace the line below with:
-    #        - model: github://YOUR_USER/YOUR_REPO/models/mister_robot.json
-    #          id: mister_robot
-    #   4. esphome run dualeye.yaml
-    - model: okay_nabu
-      id: okay_nabu
+    - model: github://Stoneface30/ROBOTAI/tools/wake_word_output/mister_robot.json@main
+      id: mister_robot
   vad:
     probability_cutoff: 0.5
 

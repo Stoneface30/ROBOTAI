@@ -33,9 +33,9 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 # ── config ────────────────────────────────────────────────────────────────────
 WAKE_WORD   = "Mister Robot"
-TARGET      = 500          # clips per speaker
+TARGET      = 100          # clips per speaker
 SAMPLE_RATE = 16000        # Hz — must match microWakeWord expectation
-PORT        = 8765
+PORT        = 8766
 OUT_BASE    = Path(__file__).parent / "recordings"
 
 SPEAKERS = [
@@ -185,61 +185,99 @@ HTML = r"""<!DOCTYPE html>
     <div class="progress-label" id="plabel">Select your name above</div>
   </div>
 
-  <button id="rec-btn" disabled title="Tap to record">🎙️</button>
+  <button id="rec-btn" disabled>&#127908;</button>
+
+  <div style="display:flex;gap:12px;align-items:center;margin-top:-4px">
+    <button id="auto-btn" disabled
+      style="padding:8px 20px;border-radius:20px;border:2px solid #444;
+             background:#111;color:#888;font-size:0.9rem;cursor:pointer;
+             transition:all 0.15s">
+      AUTO OFF
+    </button>
+    <button id="stop-btn" disabled
+      style="padding:8px 20px;border-radius:20px;border:2px solid #ff6b6b44;
+             background:#2a1a1a;color:#ff6b6b88;font-size:0.9rem;cursor:pointer;
+             transition:all 0.15s">
+      STOP
+    </button>
+  </div>
+
   <div id="status">Select your name to start</div>
+  <div id="countdown" style="font-size:2.5rem;font-weight:700;color:#7eb8ff;
+       min-height:3rem;text-align:center;line-height:3rem"></div>
 
   <div class="done-banner" id="done-banner">
-    <h2>✅ All done!</h2>
-    <p>You've recorded all __TARGET__ clips.<br>
+    <h2>All done!</h2>
+    <p>You recorded all __TARGET__ clips.<br>
        Let another family member take a turn!</p>
   </div>
 
   <div class="tips">
-    <b>Tips for great recordings:</b><br>
-    • Say the phrase at normal volume<br>
-    • Vary your speed slightly each time<br>
-    • Move around — try from 0.5m and 2m away<br>
-    • It's fine if there's background noise some of the time<br>
-    • Tap REDO below the button if you fluffed a clip
+    <b>How to use AUTO mode:</b><br>
+    1. Select your name &nbsp;2. Tap AUTO ON &nbsp;3. Tap the mic once<br>
+    It records 1.8 s, saves, counts down 2 s, then records again automatically.<br>
+    Just keep saying <b>"__WAKE_WORD__"</b> every 4 seconds. Tap STOP when done.<br><br>
+    <b>Tips:</b> vary your distance (close / across the room) &bull;
+    vary your speed slightly &bull; background noise ~20% of clips is fine
   </div>
 
   <script>
-  const WAKE_WORD = "__WAKE_WORD__";
-  const TARGET    = __TARGET__;
-  let speaker  = null;
-  let count    = 0;
-  let mediaRec = null;
-  let chunks   = [];
-  let stream   = null;
-  let canRedo  = false;
+  const WAKE_WORD   = "__WAKE_WORD__";
+  const TARGET      = __TARGET__;
+  const GAP_MS      = 2000;   // pause between auto clips (ms)
+  const REC_MS      = 1800;   // recording window (ms)
+
+  let speaker   = null;
+  let count     = 0;
+  let autoMode  = false;
+  let running   = false;      // true while auto loop is active
+  let stopFlag  = false;
 
   const recBtn   = document.getElementById("rec-btn");
+  const autoBtn  = document.getElementById("auto-btn");
+  const stopBtn  = document.getElementById("stop-btn");
   const status   = document.getElementById("status");
   const pbar     = document.getElementById("pbar");
   const plabel   = document.getElementById("plabel");
+  const countdown= document.getElementById("countdown");
   const doneBanner = document.getElementById("done-banner");
 
-  // ── speaker selection ────────────────────────────────────────────────────
+  // ── speaker selection ─────────────────────────────────────────────────────
   document.querySelectorAll(".sp-btn").forEach(btn => {
     btn.addEventListener("click", async () => {
+      if (running) return;
       document.querySelectorAll(".sp-btn").forEach(b => b.classList.remove("active"));
       btn.classList.add("active");
       speaker = btn.dataset.speaker;
-      const res = await fetch(`/count?speaker=${encodeURIComponent(speaker)}`);
+      const res  = await fetch(`/count?speaker=${encodeURIComponent(speaker)}`);
       const data = await res.json();
       count = data.count;
       updateProgress();
-      if (count >= TARGET) {
-        showDone();
-      } else {
-        recBtn.disabled = false;
-        status.textContent = "Tap the mic and say the phrase";
-        status.className = "";
-      }
+      if (count >= TARGET) { showDone(); return; }
+      recBtn.disabled = false;
+      autoBtn.disabled = false;
+      status.textContent = "Ready — tap the mic, or turn AUTO ON first";
+      status.className = "";
     });
   });
 
-  // ── progress ─────────────────────────────────────────────────────────────
+  // ── auto toggle ───────────────────────────────────────────────────────────
+  autoBtn.addEventListener("click", () => {
+    if (running) return;
+    autoMode = !autoMode;
+    autoBtn.textContent  = autoMode ? "AUTO ON"  : "AUTO OFF";
+    autoBtn.style.borderColor = autoMode ? "#7eb8ff" : "#444";
+    autoBtn.style.color       = autoMode ? "#7eb8ff" : "#888";
+    status.textContent = autoMode
+      ? "AUTO ON — tap the mic to start, it will loop automatically"
+      : "AUTO OFF — tap the mic for one clip at a time";
+    status.className = "";
+  });
+
+  // ── stop button ───────────────────────────────────────────────────────────
+  stopBtn.addEventListener("click", () => { stopFlag = true; });
+
+  // ── progress ──────────────────────────────────────────────────────────────
   function updateProgress() {
     const pct = Math.min(100, (count / TARGET) * 100);
     pbar.style.width = pct + "%";
@@ -247,76 +285,125 @@ HTML = r"""<!DOCTYPE html>
   }
 
   function showDone() {
+    running = false;
     recBtn.disabled = true;
+    autoBtn.disabled = true;
+    stopBtn.disabled = true;
     doneBanner.style.display = "block";
-    status.textContent = "All done! 🎉";
+    countdown.textContent = "";
+    status.textContent = "All done!";
     status.className = "ok";
   }
 
-  // ── recording ─────────────────────────────────────────────────────────────
-  recBtn.addEventListener("click", async () => {
-    if (!speaker) return;
-    if (mediaRec && mediaRec.state === "recording") return;
+  function setUIBusy(busy) {
+    recBtn.disabled  = busy && !autoMode;   // in auto mode rec-btn stays for "stop"
+    autoBtn.disabled = busy;
+    stopBtn.disabled = !busy;
+    document.querySelectorAll(".sp-btn").forEach(b => b.disabled = busy);
+  }
 
-    // request mic
+  // ── record one clip, returns true if saved OK ─────────────────────────────
+  async function recordOne() {
+    let stream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: {
-        sampleRate: 16000, channelCount: 1, echoCancellation: false,
-        noiseSuppression: false, autoGainControl: false
+        sampleRate: 16000, channelCount: 1,
+        echoCancellation: false, noiseSuppression: false, autoGainControl: false
       }});
-    } catch (e) {
+    } catch {
       status.textContent = "Mic access denied — check browser permissions";
       status.className = "err";
-      return;
+      return false;
     }
 
-    chunks = [];
-    mediaRec = new MediaRecorder(stream, { mimeType: "audio/webm" });
-    mediaRec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
+    return new Promise(resolve => {
+      const chunks = [];
+      const rec = new MediaRecorder(stream, { mimeType: "audio/webm" });
+      rec.ondataavailable = e => { if (e.data.size > 0) chunks.push(e.data); };
 
-    mediaRec.onstop = async () => {
-      stream.getTracks().forEach(t => t.stop());
-      recBtn.textContent = "🎙️";
-      recBtn.classList.remove("recording");
-      status.textContent = "Saving…";
-      status.className = "";
+      rec.onstop = async () => {
+        stream.getTracks().forEach(t => t.stop());
+        recBtn.classList.remove("recording");
+        status.textContent = "Saving…";
+        status.className = "";
+        countdown.textContent = "";
 
-      const blob = new Blob(chunks, { type: "audio/webm" });
-      const form = new FormData();
-      form.append("audio", blob, "clip.webm");
-      form.append("speaker", speaker);
+        const blob = new Blob(chunks, { type: "audio/webm" });
+        const form = new FormData();
+        form.append("audio", blob, "clip.webm");
+        form.append("speaker", speaker);
 
-      try {
-        const res  = await fetch("/upload", { method: "POST", body: form });
-        const data = await res.json();
-        if (data.ok) {
-          count = data.count;
-          updateProgress();
-          canRedo = true;
-          status.textContent = `✓ Clip ${count} saved`;
-          status.className = "ok";
-          if (count >= TARGET) { showDone(); }
-        } else {
-          status.textContent = "Error: " + data.error;
+        try {
+          const res  = await fetch("/upload", { method: "POST", body: form });
+          const data = await res.json();
+          if (data.ok) {
+            count = data.count;
+            updateProgress();
+            status.textContent = "Saved " + count + " / " + TARGET;
+            status.className = "ok";
+            resolve(true);
+          } else {
+            status.textContent = "Error: " + data.error;
+            status.className = "err";
+            resolve(false);
+          }
+        } catch {
+          status.textContent = "Upload failed — check WiFi";
           status.className = "err";
+          resolve(false);
         }
-      } catch (e) {
-        status.textContent = "Upload failed — are you on the right network?";
-        status.className = "err";
+      };
+
+      recBtn.classList.add("recording");
+      status.textContent = 'Say "' + WAKE_WORD + '"';
+      status.className = "rec";
+      countdown.textContent = "";
+      rec.start();
+      setTimeout(() => { if (rec.state === "recording") rec.stop(); }, REC_MS);
+    });
+  }
+
+  // ── countdown helper ──────────────────────────────────────────────────────
+  function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+  async function countdownTo(ms) {
+    const steps = Math.round(ms / 1000);
+    for (let i = steps; i >= 1; i--) {
+      if (stopFlag) return;
+      countdown.textContent = i;
+      await sleep(1000);
+    }
+    countdown.textContent = "";
+  }
+
+  // ── main record button ────────────────────────────────────────────────────
+  recBtn.addEventListener("click", async () => {
+    if (!speaker || running) return;
+    running = true;
+    stopFlag = false;
+    setUIBusy(true);
+
+    if (autoMode) {
+      // AUTO LOOP
+      while (!stopFlag && count < TARGET) {
+        const ok = await recordOne();
+        if (!ok || stopFlag || count >= TARGET) break;
+        await countdownTo(GAP_MS);
       }
-
-      recBtn.disabled = false;
-    };
-
-    // record for 1.8s then stop
-    recBtn.textContent = "⏹";
-    recBtn.classList.add("recording");
-    recBtn.disabled = true;
-    status.textContent = `🔴 Say "${WAKE_WORD}"…`;
-    status.className = "rec";
-
-    mediaRec.start();
-    setTimeout(() => { if (mediaRec.state === "recording") mediaRec.stop(); }, 1800);
+      running = false;
+      stopFlag = false;
+      setUIBusy(false);
+      if (count >= TARGET) { showDone(); return; }
+      status.textContent = "Stopped — tap mic to continue";
+      status.className = "";
+      countdown.textContent = "";
+    } else {
+      // SINGLE CLIP
+      await recordOne();
+      running = false;
+      setUIBusy(false);
+      if (count >= TARGET) showDone();
+    }
   });
   </script>
 </body>
@@ -398,14 +485,31 @@ async def upload_clip(audio: UploadFile, speaker: str = Form(...)):
 # ── main ──────────────────────────────────────────────────────────────────────
 if __name__ == "__main__":
     lan_ip = get_lan_ip()
-    print(f"\n  🤖  Wake Word Recorder")
+
+    # TLS cert paths — generated once by: python tools/gen_cert.py
+    cert = Path(__file__).parent / "cert.pem"
+    key  = Path(__file__).parent / "key.pem"
+    use_https = cert.exists() and key.exists()
+    scheme = "https" if use_https else "http"
+
+    print(f"\n  [ROBOT] Wake Word Recorder")
     print(f"  Wake word : \"{WAKE_WORD}\"")
     print(f"  Speakers  : {', '.join(SPEAKERS)}")
     print(f"  Target    : {TARGET} clips each")
     print()
-    print(f"  Open on any device on your WiFi:")
-    print(f"  ➜  http://{lan_ip}:{PORT}")
-    print(f"  ➜  http://localhost:{PORT}  (this PC only)")
+    print(f"  Open on any phone/tablet on your WiFi:")
+    print(f"  >>  {scheme}://{lan_ip}:{PORT}")
+    if not use_https:
+        print("  [WARN] No cert.pem found — serving HTTP. Phone mic will be blocked by Chrome.")
+        print("         Run: python tools/gen_cert.py  then restart.")
+    else:
+        print("  [HTTPS] Self-signed cert active.")
+        print(f"  On first visit: tap 'Advanced' -> 'Proceed to {lan_ip}' to accept the cert.")
     print()
     print("  Ctrl+C to stop\n")
-    uvicorn.run(app, host="0.0.0.0", port=PORT, log_level="warning")
+
+    kwargs = dict(host="0.0.0.0", port=PORT, log_level="warning")
+    if use_https:
+        kwargs["ssl_certfile"] = str(cert)
+        kwargs["ssl_keyfile"]  = str(key)
+    uvicorn.run(app, **kwargs)

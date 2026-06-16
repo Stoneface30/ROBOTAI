@@ -1,0 +1,14 @@
+# Training infrastructure — large, not portable
+microwakeword-train/
+
+# Personal voice recordings — private
+recordings/
+*.zip
+
+# SSL certs for recorder server
+cert.pem
+key.pem
+
+# Training logs
+*.log
+*_err.log
