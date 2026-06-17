@@ -405,7 +405,9 @@ micro_wake_word:
     channels: 0
   stop_after_detection: false
   models:
-    - model: https://raw.githubusercontent.com/Stoneface30/ROBOTAI/main/tools/wake_word_output/mister_robot.json
+    - model:
+        type: local
+        path: ../tools/wake_word_output/mister_robot.json
       id: mister_robot
   vad:
     probability_cutoff: 0.5

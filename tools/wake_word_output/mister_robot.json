@@ -1,15 +1,15 @@
 {
+  "type": "micro",
   "wake_word": "Mister Robot",
-  "author": "Family training \u2014 microWakeWord",
-  "website": "",
-  "model": "https://raw.githubusercontent.com/Stoneface30/ROBOTAI/main/tools/wake_word_output/mister_robot.tflite",
-  "opaque_model_data_v2": {
-    "tensor_arena_size": 32768,
-    "probability_cutoff": 0.5,
-    "sliding_window_average_size": 10
-  },
+  "author": "Family training",
+  "model": "mister_robot.tflite",
+  "trained_languages": ["fr", "en"],
   "version": 2,
   "micro": {
-    "minimum_esphome_version": "2024.2.0"
+    "feature_step_size": 10,
+    "sliding_window_size": 10,
+    "tensor_arena_size": 32768,
+    "probability_cutoff": 0.5,
+    "minimum_esphome_version": "2024.7.0"
   }
 }
