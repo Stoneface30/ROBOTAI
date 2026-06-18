@@ -415,6 +415,10 @@ micro_wake_word:
     - lambda: 'id(blink_phase) = 1;'
     - delay: 150ms
     - lambda: 'id(blink_phase) = 0;'
+    - media_player.play_media:
+        id: head_media_player
+        media_url: "https://raw.githubusercontent.com/Stoneface30/ROBOTAI/main/tools/audio/wake_confirm.wav"
+        announcement: true
 
 voice_assistant:
   id: va
