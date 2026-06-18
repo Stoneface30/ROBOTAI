@@ -411,6 +411,10 @@ micro_wake_word:
       id: mister_robot
   vad:
     probability_cutoff: 0.5
+  on_wake_word_detected:
+    - lambda: 'id(blink_phase) = 1;'
+    - delay: 150ms
+    - lambda: 'id(blink_phase) = 0;'
 
 voice_assistant:
   id: va
@@ -449,6 +453,18 @@ voice_assistant:
     - logger.log:
         format: "Voice assistant error: %s"
         args: ["code.c_str()"]
+
+number:
+  - platform: template
+    id: eye_state_ctrl
+    name: Eye State
+    icon: mdi:eye
+    entity_category: config
+    min_value: 0
+    max_value: 4
+    step: 1
+    set_action:
+      - lambda: 'id(eye_state) = (int)x;'
 
 button:
   - platform: restart

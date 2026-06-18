@@ -12,3 +12,7 @@ key.pem
 # Training logs
 *.log
 *_err.log
+
+# openWakeWord venv and cached embeddings (large, reproducible)
+oww_venv/
+oww_features/
