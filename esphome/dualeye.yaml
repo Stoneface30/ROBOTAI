@@ -163,10 +163,10 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
-  - id: blink_phase
-    type: int
+  - id: blink_amount
+    type: float
     restore_value: no
-    initial_value: '0'  # 0=open, 1=closed (set by blink_timer)
+    initial_value: '0.0'  # 0=open .. 1=closed (animated by do_blink script)
   - id: anim_tick
     type: int
     restore_value: no
@@ -234,9 +234,10 @@ display:
     reset_pin: ${lcd1_rst}
     invert_colors: true
     update_interval: 100ms   # 10 FPS — enough for face animation, cheap on CPU
+    rotation: 90   # panels are physically mounted rotated 90° in the head
     lambda: |-
       int month = id(time_ha).now().is_valid() ? id(time_ha).now().month : 0;
-      draw_robot_eye(it, id(eye_state), id(blink_phase) == 1, id(anim_tick),
+      draw_robot_eye(it, id(eye_state), id(blink_amount), id(anim_tick),
                      id(timer_progress), id(iris_r), id(iris_g), id(iris_b),
                      month, false);
 
@@ -254,10 +255,11 @@ display:
       mirror_x: true
       mirror_y: true
       swap_xy: false
+    rotation: 90
     update_interval: 100ms
     lambda: |-
       int month = id(time_ha).now().is_valid() ? id(time_ha).now().month : 0;
-      draw_robot_eye(it, id(eye_state), id(blink_phase) == 1, id(anim_tick),
+      draw_robot_eye(it, id(eye_state), id(blink_amount), id(anim_tick),
                      id(timer_progress), id(iris_r), id(iris_g), id(iris_b),
                      month, true);
 
@@ -269,26 +271,31 @@ interval:
           condition:
             lambda: 'return id(eye_state) == 0;'   # only blink when idle
           then:
-            - lambda: 'id(blink_phase) = 1;'
-            - delay: 120ms
-            - lambda: 'id(blink_phase) = 0;'
+            - script.execute: do_blink
   # Animation clock for spin/dance/silly/snow rendering in eyes.h
   - interval: 100ms
     then:
       - lambda: 'id(anim_tick)++;'
 
-# Reusable double-wink (notification cue + HA-callable)
+# Soft eyelid blink + reusable double-wink (notification cue + HA-callable)
 script:
+  - id: do_blink
+    mode: restart
+    then:
+      - lambda: 'id(blink_amount) = 0.5f;'
+      - delay: 70ms
+      - lambda: 'id(blink_amount) = 1.0f;'
+      - delay: 120ms
+      - lambda: 'id(blink_amount) = 0.5f;'
+      - delay: 70ms
+      - lambda: 'id(blink_amount) = 0.0f;'
   - id: do_wink
     mode: restart
     then:
-      - lambda: 'id(blink_phase) = 1;'
-      - delay: 110ms
-      - lambda: 'id(blink_phase) = 0;'
-      - delay: 140ms
-      - lambda: 'id(blink_phase) = 1;'
-      - delay: 110ms
-      - lambda: 'id(blink_phase) = 0;'
+      - script.execute: do_blink
+      - script.wait: do_blink
+      - delay: 100ms
+      - script.execute: do_blink
   - id: do_celebrate
     mode: restart
     then:
@@ -451,9 +458,7 @@ micro_wake_word:
   vad:
     probability_cutoff: 0.5
   on_wake_word_detected:
-    - lambda: 'id(blink_phase) = 1;'
-    - delay: 150ms
-    - lambda: 'id(blink_phase) = 0;'
+    - script.execute: do_blink
     # Chime is baked into flash — no internet/GitHub dependency, ~0 latency
     - media_player.speaker.play_on_device_media_file:
         media_file: wake_chime
@@ -527,7 +532,7 @@ number:
     icon: mdi:eye
     entity_category: config
     min_value: 0
-    max_value: 8
+    max_value: 10
     step: 1
     set_action:
       - lambda: 'id(eye_state) = (int)x;'
@@ -562,3 +567,13 @@ binary_sensor:
         max_length: 5000ms
         then:
           - switch.toggle: mic_mute
+    # Double-click = read the shopping list aloud (Top20 #9, button-only test)
+    on_multi_click:
+      - timing:
+          - ON for at most 400ms
+          - OFF for at most 300ms
+          - ON for at most 400ms
+          - OFF for at least 200ms
+        then:
+          - homeassistant.service:
+              service: script.read_shopping_list
