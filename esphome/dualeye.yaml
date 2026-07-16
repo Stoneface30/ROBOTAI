@@ -366,6 +366,9 @@ media_player:
     volume_increment: 0.05
     volume_min: 0.3
     volume_max: 0.9
+    files:
+      - id: wake_chime
+        file: ../tools/audio/wake_confirm.wav
     announcement_pipeline:
       speaker: spk_announcement_resampler
       format: FLAC
@@ -409,15 +412,19 @@ micro_wake_word:
         type: local
         path: ../tools/wake_word_output/mister_robot.json
       id: mister_robot
+      # Manifest ships 0.5 which false-triggers on normal speech (2-speaker
+      # training set). 0.90 measured as usable; raise further if it still
+      # false-wakes, lower if it misses real wakes.
+      probability_cutoff: 0.90
   vad:
     probability_cutoff: 0.5
   on_wake_word_detected:
     - lambda: 'id(blink_phase) = 1;'
     - delay: 150ms
     - lambda: 'id(blink_phase) = 0;'
-    - media_player.play_media:
-        id: head_media_player
-        media_url: "https://raw.githubusercontent.com/Stoneface30/ROBOTAI/main/tools/audio/wake_confirm.wav"
+    # Chime is baked into flash — no internet/GitHub dependency, ~0 latency
+    - media_player.speaker.play_on_device_media_file:
+        media_file: wake_chime
         announcement: true
 
 voice_assistant:
