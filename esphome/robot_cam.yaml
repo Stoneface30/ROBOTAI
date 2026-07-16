@@ -77,7 +77,9 @@ esp32_camera:
   resolution: 640x480
   jpeg_quality: 12
   max_framerate: 10fps
-  idle_framerate: 0.1fps
+  # Was 0.1fps power-saver — but the MJPEG server serves at idle rate too,
+  # which starves Frigate. Camera's job is continuous detection now.
+  idle_framerate: 5fps
   vertical_flip: false
   horizontal_mirror: false
 
