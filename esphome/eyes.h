@@ -32,7 +32,7 @@ static constexpr int EYE_R = 110;  // sclera radius
 // ---------- Expression table ----------------------------------------------
 
 enum : uint8_t {  // animation function ids (indexes into EYE_ANIMS)
-  A_NONE = 0, A_ORBIT, A_BOB, A_SILLY, A_PAN,
+  A_NONE = 0, A_ORBIT, A_BOB, A_SILLY, A_PAN, A_THINK,
   A_COUNT
 };
 
@@ -55,7 +55,7 @@ struct EyeExpression {
 static constexpr EyeExpression EYE_EXPRESSIONS[] = {
   /* 0 idle      */ {38, 0,   0, A_NONE,  0, 0, 0, 0},
   /* 1 listening */ {52, 0,   0, A_NONE,  0, 0, 0, 0},   // dilated
-  /* 2 thinking  */ {34, 0, -35, A_NONE,  0, 0, 0, 0},   // glance up
+  /* 2 thinking  */ {34, 0, -35, A_THINK, 0, 0, 0, 0},   // glance up + ponder
   /* 3 speaking  */ {44, 0,   0, A_NONE,  0, 0, 0, 0},
   /* 4 error     */ {30, 0,   0, A_NONE,  F_SCLERA_OVERRIDE | F_NO_SEASON,
                      255, 60, 60},                        // red, pinprick
@@ -100,8 +100,16 @@ static inline void anim_pan(float t, bool, float &px, float &, float &) {
   px += 55.0f * sinf(t * 1.5708f);   // slow left-right sweep, ~4 s period
 }
 
+// Thinking/busy: pupil wanders in a small ellipse near the top with a
+// gentle size pulse — visibly "pondering" during STT/LLM processing.
+static inline void anim_think(float t, bool, float &px, float &py, float &pr) {
+  px += 10.0f * sinf(t * 1.8f);
+  py += 5.0f * sinf(t * 2.7f);
+  pr += 3.0f * sinf(t * 2.2f);
+}
+
 static const EyeAnimFn EYE_ANIMS[A_COUNT] = {
-  anim_none, anim_orbit, anim_bob, anim_silly, anim_pan,
+  anim_none, anim_orbit, anim_bob, anim_silly, anim_pan, anim_think,
 };
 
 // ---------- Feature drawers -------------------------------------------------
