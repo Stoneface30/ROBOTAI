@@ -163,14 +163,10 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'
-  - id: blink_amount
-    type: float
+  - id: blink_start
+    type: uint32_t
     restore_value: no
-    initial_value: '0.0'  # 0=open .. 1=closed (animated by do_blink script)
-  - id: anim_tick
-    type: int
-    restore_value: no
-    initial_value: '0'
+    initial_value: '0'  # millis() of last blink trigger; eyes.h computes the curve
   - id: timer_progress
     type: float
     restore_value: no
@@ -241,11 +237,11 @@ display:
       allow_other_uses: true
     reset_pin: ${lcd1_rst}
     invert_colors: true
-    update_interval: 100ms   # 10 FPS — enough for face animation, cheap on CPU
     rotation: 90   # panels are physically mounted rotated 90° in the head
+    update_interval: 50ms   # 20 FPS — smooth animation; watch logs for overruns
     lambda: |-
       int month = id(time_ha).now().is_valid() ? id(time_ha).now().month : 0;
-      draw_robot_eye(it, id(eye_state), id(blink_amount), id(anim_tick),
+      draw_robot_eye(it, id(eye_state), millis(), id(blink_start),
                      id(timer_progress), id(iris_r), id(iris_g), id(iris_b),
                      month, false);
 
@@ -264,10 +260,10 @@ display:
       mirror_y: true
       swap_xy: false
     rotation: 90
-    update_interval: 100ms
+    update_interval: 50ms
     lambda: |-
       int month = id(time_ha).now().is_valid() ? id(time_ha).now().month : 0;
-      draw_robot_eye(it, id(eye_state), id(blink_amount), id(anim_tick),
+      draw_robot_eye(it, id(eye_state), millis(), id(blink_start),
                      id(timer_progress), id(iris_r), id(iris_g), id(iris_b),
                      month, true);
 
@@ -280,30 +276,19 @@ interval:
             lambda: 'return id(eye_state) == 0;'   # only blink when idle
           then:
             - script.execute: do_blink
-  # Animation clock for spin/dance/silly/snow rendering in eyes.h
-  - interval: 100ms
-    then:
-      - lambda: 'id(anim_tick)++;'
 
-# Soft eyelid blink + reusable double-wink (notification cue + HA-callable)
+# Blink = timestamp; eyes.h renders the close/hold/open curve time-continuously
 script:
   - id: do_blink
     mode: restart
     then:
-      - lambda: 'id(blink_amount) = 0.5f;'
-      - delay: 70ms
-      - lambda: 'id(blink_amount) = 1.0f;'
-      - delay: 120ms
-      - lambda: 'id(blink_amount) = 0.5f;'
-      - delay: 70ms
-      - lambda: 'id(blink_amount) = 0.0f;'
+      - lambda: 'id(blink_start) = millis();'
   - id: do_wink
     mode: restart
     then:
-      - script.execute: do_blink
-      - script.wait: do_blink
-      - delay: 100ms
-      - script.execute: do_blink
+      - lambda: 'id(blink_start) = millis();'
+      - delay: 400ms
+      - lambda: 'id(blink_start) = millis();'
   - id: do_celebrate
     mode: restart
     then:
@@ -517,8 +502,6 @@ voice_assistant:
         format: "Voice assistant error: %s"
         args: ["code.c_str()"]
   # Voice timers ("set a timer for 10 minutes") — countdown ring on the eyes
-  on_timer_started:
-    - lambda: 'id(anim_tick) = id(anim_tick);'   # no-op; ring appears via tick
   on_timer_tick:
     - lambda: |-
         float p = 0.0f;

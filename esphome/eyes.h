@@ -71,32 +71,33 @@ static constexpr int EYE_STATE_COUNT =
     sizeof(EYE_EXPRESSIONS) / sizeof(EYE_EXPRESSIONS[0]);
 
 // ---------- Animation functions --------------------------------------------
-// Each mutates pupil position/radius from the animation tick (10 Hz).
+// Each mutates pupil position/radius from continuous time t (seconds).
+// Time-based (not tick-based) so both eyes sample the same phase and the
+// motion stays smooth regardless of frame scheduling.
 
-typedef void (*EyeAnimFn)(int tick, bool right_eye, int &px, int &py, int &pr);
+typedef void (*EyeAnimFn)(float t, bool right_eye, float &px, float &py, float &pr);
 
-static inline void anim_none(int, bool, int &, int &, int &) {}
+static inline void anim_none(float, bool, float &, float &, float &) {}
 
-static inline void anim_orbit(int tick, bool, int &px, int &py, int &) {
-  float a = tick * 0.35f;
-  px += (int) (45.0f * cosf(a));
-  py += (int) (45.0f * sinf(a));
+static inline void anim_orbit(float t, bool, float &px, float &py, float &) {
+  float a = t * 3.5f;
+  px += 45.0f * cosf(a);
+  py += 45.0f * sinf(a);
 }
 
-static inline void anim_bob(int tick, bool, int &px, int &py, int &pr) {
-  py += (int) (18.0f * sinf(tick * 0.5f));
-  px += (int) (8.0f * sinf(tick * 0.25f));
-  pr += (int) (6.0f * sinf(tick * 0.5f));
+static inline void anim_bob(float t, bool, float &px, float &py, float &pr) {
+  py += 18.0f * sinf(t * 5.0f);
+  px += 8.0f * sinf(t * 2.5f);
+  pr += 6.0f * sinf(t * 5.0f);
 }
 
-static inline void anim_silly(int tick, bool right_eye, int &px, int &py, int &) {
-  px += right_eye ? -30 : 30;  // cross-eyed: both pupils toward the nose
-  py += (int) (10.0f * sinf(tick * 0.7f));
+static inline void anim_silly(float t, bool right_eye, float &px, float &py, float &) {
+  px += right_eye ? -30.0f : 30.0f;  // cross-eyed: both pupils toward the nose
+  py += 10.0f * sinf(t * 7.0f);
 }
 
-static inline void anim_pan(int tick, bool, int &px, int &, int &) {
-  // Slow left-right sweep, ~4 s period at 10 ticks/s (2*pi/40 per tick).
-  px += (int) (55.0f * sinf(tick * 0.15708f));
+static inline void anim_pan(float t, bool, float &px, float &, float &) {
+  px += 55.0f * sinf(t * 1.5708f);   // slow left-right sweep, ~4 s period
 }
 
 static const EyeAnimFn EYE_ANIMS[A_COUNT] = {
@@ -104,6 +105,15 @@ static const EyeAnimFn EYE_ANIMS[A_COUNT] = {
 };
 
 // ---------- Feature drawers -------------------------------------------------
+
+// Blink profile from elapsed ms since blink_start: quick close (110 ms),
+// brief hold (80 ms), slower open (140 ms). Continuous — sampled per frame.
+static inline float blink_profile(uint32_t elapsed_ms) {
+  if (elapsed_ms < 110) return elapsed_ms / 110.0f;
+  if (elapsed_ms < 190) return 1.0f;
+  if (elapsed_ms < 330) return 1.0f - (elapsed_ms - 190) / 140.0f;
+  return 0.0f;
+}
 
 // Friendly trash bin in place of the pupil (state 9 "bin night").
 static inline void draw_bin_icon(Display &it, int tick) {
@@ -167,13 +177,19 @@ static inline void draw_eyelids(Display &it, float blink_amount) {
 }  // namespace robot_eye
 
 // ---------- Renderer ---------------------------------------------------------
-// Called from both display lambdas in dualeye.yaml every 100 ms.
+// Called from both display lambdas in dualeye.yaml every 50 ms (20 FPS).
+// now_ms: millis(); blink_start_ms: last blink trigger (0 = never).
 
 static inline void draw_robot_eye(esphome::display::Display &it, int state,
-                                  float blink_amount, int tick,
+                                  uint32_t now_ms, uint32_t blink_start_ms,
                                   float timer_prog, int ir, int ig, int ib,
                                   int month, bool right_eye) {
   using namespace robot_eye;
+
+  const float t = now_ms / 1000.0f;
+  const int tick = (int) (now_ms / 100);   // legacy 10 Hz tick for icon wiggles
+  const float blink_amount =
+      blink_start_ms ? blink_profile(now_ms - blink_start_ms) : 0.0f;
 
   it.fill(Color(0, 0, 0));
 
@@ -199,9 +215,21 @@ static inline void draw_robot_eye(esphome::display::Display &it, int state,
   if (ex.flags & F_BIN_ICON) {
     draw_bin_icon(it, tick);
   } else {
-    // Pupil geometry from the table, then the state's animation function.
-    int px = CX + ex.px_off, py = CY + ex.py_off, pr = ex.pupil_r;
-    EYE_ANIMS[ex.anim](tick, right_eye, px, py, pr);
+    // Target pupil geometry: table row + the state's animation function.
+    float tx = CX + ex.px_off, ty = CY + ex.py_off, tr = ex.pupil_r;
+    EYE_ANIMS[ex.anim](t, right_eye, tx, ty, tr);
+
+    // Exponential smoothing toward the target — state changes glide instead
+    // of snapping, and animation motion is softened. Per-eye state ([0]=left,
+    // [1]=right; each display lambda runs on the main loop, no races).
+    static float sm[2][3] = {{CX, CY, 38.0f}, {CX, CY, 38.0f}};
+    float *s = sm[right_eye ? 1 : 0];
+    const float alpha = 0.45f;   // ~3 frames to converge at 20 FPS
+    s[0] += (tx - s[0]) * alpha;
+    s[1] += (ty - s[1]) * alpha;
+    s[2] += (tr - s[2]) * alpha;
+    int px = (int) s[0], py = (int) s[1], pr = (int) s[2];
+
     // Weather-tinted iris ring behind the pupil.
     it.filled_circle(px, py, pr + 12, Color((uint8_t) ir, (uint8_t) ig, (uint8_t) ib));
     it.filled_circle(px, py, pr, Color(0, 0, 0));
@@ -211,7 +239,7 @@ static inline void draw_robot_eye(esphome::display::Display &it, int state,
 
   // Sleepy: heavy top lid droops with a slow breathing rhythm.
   if (ex.flags & F_DROOPY_LID) {
-    int droop = 62 + (int) (8.0f * sinf(tick * 0.08f));
+    int droop = 62 + (int) (8.0f * sinf(t * 0.8f));
     it.filled_rectangle(0, 0, W, (CY - EYE_R) + droop, Color(0, 0, 0));
   }
 
