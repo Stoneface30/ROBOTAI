@@ -474,11 +474,20 @@ voice_assistant:
     - micro_wake_word.start:
     - lambda: 'id(eye_state) = 0;'
     - logger.log: "HA connected — wake word active"
+  # Fires per-client: a closing `esphome logs` session triggers this while HA
+  # is still connected (this silently killed the wake word repeatedly on
+  # 2026-07-16). Only treat it as "HA gone" when NO api client remains.
   on_client_disconnected:
-    - micro_wake_word.stop:
-    - voice_assistant.stop:
-    - lambda: 'id(eye_state) = 4;'
-    - logger.log: "HA disconnected"
+    - if:
+        condition:
+          api.connected:
+        then:
+          - micro_wake_word.start:   # idempotent; keeps wake alive for HA
+        else:
+          - micro_wake_word.stop:
+          - voice_assistant.stop:
+          - lambda: 'id(eye_state) = 4;'
+          - logger.log: "All API clients disconnected"
   on_listening:
     - lambda: 'id(eye_state) = 1;'   # eyes wide / dilated pupil
   on_stt_vad_start:
