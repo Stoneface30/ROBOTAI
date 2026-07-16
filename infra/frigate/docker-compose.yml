@@ -1,0 +1,26 @@
+# Frigate NVR for the robot's ESP32-CAM (camera phase, top-50 #33/#34/#35/#40/#42).
+# Runs on the main PC (192.168.0.10) next to Wyoming — GPU-accelerated ONNX detector.
+#
+# Start:  docker compose -f F:\ROBOTAI\infra\frigate\docker-compose.yml up -d
+# UI:     http://192.168.0.10:5000
+#
+# NOTE: this PC is not 24/7 — same trade-off as Wyoming (accepted 2026-07-14).
+# MQTT broker = HA box (192.168.0.166:1883), same one the MagicMirror uses.
+services:
+  frigate:
+    image: ghcr.io/blakeblackshear/frigate:stable
+    container_name: frigate
+    restart: unless-stopped
+    gpus: all
+    shm_size: "256mb"
+    ports:
+      - "5000:5000"     # UI + API
+      - "8554:8554"     # RTSP restream
+    volumes:
+      - ./config:/config
+      - frigate-media:/media/frigate
+    environment:
+      - FRIGATE_RTSP_PASSWORD=unused
+
+volumes:
+  frigate-media:

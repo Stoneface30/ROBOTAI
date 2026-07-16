@@ -1,0 +1,42 @@
+# Frigate config — robot's ESP32-CAM (OV2640, MJPEG over HTTP).
+# The ESP32-CAM serves MJPEG at http://192.168.0.104:8080/stream once the
+# camera-phase firmware (esp32_camera_web_server) is flashed and powered.
+mqtt:
+  host: 192.168.0.166
+  port: 1883
+  topic_prefix: frigate
+
+detectors:
+  # ONNX on the RTX 5060 Ti. If GPU passthrough misbehaves, fall back to
+  # detector type cpu (this camera is only 10 fps 640x480 — CPU copes).
+  onnx:
+    type: onnx
+
+ffmpeg:
+  # MJPEG input needs explicit demuxer hints
+  input_args: -avoid_negative_ts make_zero -fflags nobuffer -flags low_delay
+
+cameras:
+  robot_eye:
+    enabled: true
+    ffmpeg:
+      inputs:
+        - path: http://192.168.0.104:8080/stream
+          input_args: -f mjpeg -avoid_negative_ts make_zero -fflags nobuffer
+          roles: [detect, record]
+    detect:
+      width: 640
+      height: 480
+      fps: 5
+    objects:
+      track: [person]
+      filters:
+        person:
+          min_score: 0.6
+          threshold: 0.72
+    record:
+      enabled: false   # enable later for the timelapse idea (#42)
+    snapshots:
+      enabled: true
+      retain:
+        default: 3

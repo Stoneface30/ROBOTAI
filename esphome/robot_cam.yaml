@@ -81,6 +81,15 @@ esp32_camera:
   vertical_flip: false
   horizontal_mirror: false
 
+# MJPEG stream for Frigate (README roadmap item, enabled for camera phase).
+# Stream:   http://192.168.0.104:8080/stream
+# Snapshot: http://192.168.0.104:8080/still
+esp32_camera_web_server:
+  - port: 8080
+    mode: stream
+  - port: 8081
+    mode: snapshot
+
 # Flash LED — GPIO4 (onboard, very bright — keep duty low)
 output:
   - platform: ledc

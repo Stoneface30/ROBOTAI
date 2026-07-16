@@ -188,6 +188,14 @@ globals:
 
 # Weather condition from HA tints the iris (idea #4)
 text_sensor:
+  # Conversation transcript mirrors — consumed by HA automation that pushes
+  # the MagicMirror "Mister Robot said" card (top-50 #24/#25)
+  - platform: template
+    id: last_heard
+    name: Last Heard
+  - platform: template
+    id: last_reply
+    name: Last Reply
   - platform: homeassistant
     id: ha_weather
     entity_id: weather.forecast_home
@@ -488,10 +496,17 @@ voice_assistant:
     - lambda: 'id(eye_state) = 1;'   # eyes wide / dilated pupil
   on_stt_vad_start:
     - lambda: 'id(eye_state) = 1;'   # still listening (voice detected)
+  on_stt_end:
+    - text_sensor.template.publish:
+        id: last_heard
+        state: !lambda 'return x;'
   on_stt_vad_end:
     - lambda: 'id(eye_state) = 2;'   # thinking (look up)
   on_tts_start:
     - lambda: 'id(eye_state) = 3;'   # speaking
+    - text_sensor.template.publish:
+        id: last_reply
+        state: !lambda 'return x;'
   on_end:
     - lambda: 'id(eye_state) = 0;'   # back to idle
   on_error:
