@@ -50,6 +50,24 @@ services:
       --voice en_US-amy-medium
       --uri tcp://0.0.0.0:10200
 
+  # Server-side wake word for the LIVING ROOM Jabra satellite (Assist
+  # Microphone add-on) — offloads wake processing from the RAM-tight HA VM
+  # to this PC, and gives the living room the custom "Mister Robot" model
+  # (the openWakeWord onnx trained 2026-06). The robot head still does
+  # wake on-device (microWakeWord) and does NOT use this container.
+  openwakeword:
+    image: rhasspy/wyoming-openwakeword:latest
+    container_name: wyoming-openwakeword
+    restart: unless-stopped
+    ports:
+      - "10400:10400"
+    volumes:
+      - ./oww-models:/custom
+    command: >
+      --custom-model-dir /custom
+      --preload-model mister_robot
+      --uri tcp://0.0.0.0:10400
+
 volumes:
   whisper-data:
   piper-data:
