@@ -48,6 +48,13 @@ esphome:
   min_version: 2025.8.0
   platformio_options:
     board_build.flash_mode: dio
+  # User-tuned volume (2026-07-16): 0.85 too loud, 0.75 confirmed perfect
+  on_boot:
+    - priority: -100
+      then:
+        - media_player.volume_set:
+            id: head_media_player
+            volume: 0.75
 
 esp32:
   board: esp32-s3-devkitc-1
