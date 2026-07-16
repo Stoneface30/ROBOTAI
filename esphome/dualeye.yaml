@@ -456,6 +456,10 @@ micro_wake_word:
     - media_player.speaker.play_on_device_media_file:
         media_file: wake_chime
         announcement: true
+    # EXPLICIT pipeline start — the implicit micro_wake_word->voice_assistant
+    # link never fired (wake chimed but satellite stayed idle; bug found
+    # 2026-07-16: user heard the chime, question went nowhere)
+    - voice_assistant.start:
 
 voice_assistant:
   id: va
