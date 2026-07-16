@@ -238,7 +238,7 @@ display:
     reset_pin: ${lcd1_rst}
     invert_colors: true
     rotation: 90   # panels are physically mounted rotated 90° in the head
-    update_interval: 50ms   # 20 FPS — smooth animation; watch logs for overruns
+    update_interval: 66ms   # 15 FPS — 20 FPS starved micro_wake_word ring buffer (L292 era bug #2)
     lambda: |-
       int month = id(time_ha).now().is_valid() ? id(time_ha).now().month : 0;
       draw_robot_eye(it, id(eye_state), millis(), id(blink_start),
@@ -258,7 +258,7 @@ display:
     # No mirror transform: vendor config.h sets LCD2 MIRROR_X/Y=false. The old
     # mirror flags made 'thinking' look up on one eye and down on the other.
     rotation: 90
-    update_interval: 50ms
+    update_interval: 66ms
     lambda: |-
       int month = id(time_ha).now().is_valid() ? id(time_ha).now().month : 0;
       draw_robot_eye(it, id(eye_state), millis(), id(blink_start),
