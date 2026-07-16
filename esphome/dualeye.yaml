@@ -46,6 +46,8 @@ esphome:
   name: ${device_name}
   friendly_name: ${friendly}
   min_version: 2025.8.0
+  includes:
+    - eyes.h
   platformio_options:
     board_build.flash_mode: dio
   # User-tuned volume (2026-07-16): 0.85 too loud, 0.75 confirmed perfect
@@ -115,6 +117,14 @@ captive_portal:
 api:
   encryption:
     key: !secret api_key_dualeye
+  # HA-callable expression actions: esphome.dualeye_wink / _celebrate
+  services:
+    - service: wink
+      then:
+        - script.execute: do_wink
+    - service: celebrate
+      then:
+        - script.execute: do_celebrate
 
 ota:
   - platform: esphome
@@ -146,8 +156,8 @@ spi:
     mosi_pin: ${lcd_mosi}
     interface: hardware
 
-# Eye expression state. 0 = idle (calm), 1 = listening (alert),
-# 2 = thinking (looking up), 3 = speaking (active), 4 = error.
+# Eye expression state. 0 idle, 1 listening, 2 thinking/glance-up, 3 speaking,
+# 4 error, 5 sleepy, 6 laundry-spin, 7 dance, 8 silly. Rendering in eyes.h.
 globals:
   - id: eye_state
     type: int
@@ -157,6 +167,39 @@ globals:
     type: int
     restore_value: no
     initial_value: '0'  # 0=open, 1=closed (set by blink_timer)
+  - id: anim_tick
+    type: int
+    restore_value: no
+    initial_value: '0'
+  - id: timer_progress
+    type: float
+    restore_value: no
+    initial_value: '0.0'
+  # Iris ring color - follows HA weather condition
+  - id: iris_r
+    type: int
+    initial_value: '160'
+  - id: iris_g
+    type: int
+    initial_value: '160'
+  - id: iris_b
+    type: int
+    initial_value: '170'
+
+# Weather condition from HA tints the iris (idea #4)
+text_sensor:
+  - platform: homeassistant
+    id: ha_weather
+    entity_id: weather.forecast_home
+    on_value:
+      - lambda: |-
+          std::string c = x;
+          if (c == "sunny" || c == "clear-night")      { id(iris_r)=255; id(iris_g)=190; id(iris_b)=60; }
+          else if (c == "rainy" || c == "pouring")     { id(iris_r)=70;  id(iris_g)=130; id(iris_b)=255; }
+          else if (c == "snowy" || c == "snowy-rainy") { id(iris_r)=220; id(iris_g)=235; id(iris_b)=255; }
+          else if (c == "lightning" || c == "lightning-rainy") { id(iris_r)=255; id(iris_g)=230; id(iris_b)=0; }
+          else if (c == "fog")                          { id(iris_r)=120; id(iris_g)=120; id(iris_b)=120; }
+          else                                          { id(iris_r)=150; id(iris_g)=150; id(iris_b)=165; }
 
 # Backlights — direct GPIO, active HIGH (verified Waveshare convention)
 output:
@@ -192,33 +235,10 @@ display:
     invert_colors: true
     update_interval: 100ms   # 10 FPS — enough for face animation, cheap on CPU
     lambda: |-
-      const int W = 240, H = 240;
-      const int cx = W / 2, cy = H / 2;
-      const int state = id(eye_state);
-      const bool blinking = id(blink_phase) == 1;
-      // Background
-      it.fill(Color(0, 0, 0));
-      // Blink overrides everything — closed eye = horizontal slit
-      if (blinking) {
-        it.filled_rectangle(0, cy - 6, W, 12, Color(255, 255, 255));
-        return;
-      }
-      // Sclera (white eye)
-      Color sclera = (state == 4) ? Color(255, 60, 60) : Color(255, 255, 255);
-      it.filled_circle(cx, cy, 110, sclera);
-      // Pupil — size + offset varies by state
-      int pupil_r = 38;
-      int px = cx, py = cy;
-      switch (state) {
-        case 1: pupil_r = 52; break;                          // listening — dilated
-        case 2: py = cy - 35; pupil_r = 34; break;            // thinking — look up
-        case 3: pupil_r = 44; break;                          // speaking — slightly enlarged
-        case 4: pupil_r = 30; break;                          // error — small pinprick
-        default: pupil_r = 38; break;                         // idle
-      }
-      it.filled_circle(px, py, pupil_r, Color(0, 0, 0));
-      // Catch-light highlight (small white dot in pupil)
-      it.filled_circle(px + pupil_r / 3, py - pupil_r / 3, 6, Color(255, 255, 255));
+      int month = id(time_ha).now().is_valid() ? id(time_ha).now().month : 0;
+      draw_robot_eye(it, id(eye_state), id(blink_phase) == 1, id(anim_tick),
+                     id(timer_progress), id(iris_r), id(iris_g), id(iris_b),
+                     month, false);
 
   - platform: mipi_spi
     model: GC9A01A
@@ -236,28 +256,10 @@ display:
       swap_xy: false
     update_interval: 100ms
     lambda: |-
-      const int W = 240, H = 240;
-      const int cx = W / 2, cy = H / 2;
-      const int state = id(eye_state);
-      const bool blinking = id(blink_phase) == 1;
-      it.fill(Color(0, 0, 0));
-      if (blinking) {
-        it.filled_rectangle(0, cy - 6, W, 12, Color(255, 255, 255));
-        return;
-      }
-      Color sclera = (state == 4) ? Color(255, 60, 60) : Color(255, 255, 255);
-      it.filled_circle(cx, cy, 110, sclera);
-      int pupil_r = 38;
-      int px = cx, py = cy;
-      switch (state) {
-        case 1: pupil_r = 52; break;
-        case 2: py = cy - 35; pupil_r = 34; break;
-        case 3: pupil_r = 44; break;
-        case 4: pupil_r = 30; break;
-        default: pupil_r = 38; break;
-      }
-      it.filled_circle(px, py, pupil_r, Color(0, 0, 0));
-      it.filled_circle(px + pupil_r / 3, py - pupil_r / 3, 6, Color(255, 255, 255));
+      int month = id(time_ha).now().is_valid() ? id(time_ha).now().month : 0;
+      draw_robot_eye(it, id(eye_state), id(blink_phase) == 1, id(anim_tick),
+                     id(timer_progress), id(iris_r), id(iris_g), id(iris_b),
+                     month, true);
 
 # Random idle blink every ~3-7 seconds. Closes for 120 ms.
 interval:
@@ -270,6 +272,29 @@ interval:
             - lambda: 'id(blink_phase) = 1;'
             - delay: 120ms
             - lambda: 'id(blink_phase) = 0;'
+  # Animation clock for spin/dance/silly/snow rendering in eyes.h
+  - interval: 100ms
+    then:
+      - lambda: 'id(anim_tick)++;'
+
+# Reusable double-wink (notification cue + HA-callable)
+script:
+  - id: do_wink
+    mode: restart
+    then:
+      - lambda: 'id(blink_phase) = 1;'
+      - delay: 110ms
+      - lambda: 'id(blink_phase) = 0;'
+      - delay: 140ms
+      - lambda: 'id(blink_phase) = 1;'
+      - delay: 110ms
+      - lambda: 'id(blink_phase) = 0;'
+  - id: do_celebrate
+    mode: restart
+    then:
+      - lambda: 'id(eye_state) = 7;'   # dance
+      - delay: 4s
+      - lambda: 'if (id(eye_state) == 7) id(eye_state) = 0;'
 
 # Two i2s_audio buses share LRCK/BCLK/MCLK between speaker (output) and mic (input).
 # ESPHome ≥2025 requires explicit allow_other_uses on shared pins.
@@ -471,6 +496,29 @@ voice_assistant:
     - logger.log:
         format: "Voice assistant error: %s"
         args: ["code.c_str()"]
+  # Voice timers ("set a timer for 10 minutes") — countdown ring on the eyes
+  on_timer_started:
+    - lambda: 'id(anim_tick) = id(anim_tick);'   # no-op; ring appears via tick
+  on_timer_tick:
+    - lambda: |-
+        float p = 0.0f;
+        for (auto &t : timers) {
+          if (t.is_active && t.total_seconds > 0) {
+            p = 1.0f - ((float) t.seconds_left / (float) t.total_seconds);
+            break;
+          }
+        }
+        id(timer_progress) = p;
+  on_timer_finished:
+    - lambda: 'id(timer_progress) = 0.0f;'
+    - script.execute: do_wink
+    - media_player.speaker.play_on_device_media_file:
+        media_file: wake_chime
+        announcement: true
+    - delay: 400ms
+    - media_player.speaker.play_on_device_media_file:
+        media_file: wake_chime
+        announcement: true
 
 number:
   - platform: template
@@ -479,7 +527,7 @@ number:
     icon: mdi:eye
     entity_category: config
     min_value: 0
-    max_value: 4
+    max_value: 8
     step: 1
     set_action:
       - lambda: 'id(eye_state) = (int)x;'
