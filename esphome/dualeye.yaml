@@ -274,6 +274,21 @@ interval:
             lambda: 'return id(eye_state) == 0;'   # only blink when idle
           then:
             - script.execute: do_blink
+  # Self-healing wake word: start races mic init after reboots/reconnects and
+  # loses silently (recurring 2026-07-16/17). If HA is connected, mic unmuted,
+  # and detection is not running - restart it. Cures all root causes at once.
+  - interval: 30s
+    then:
+      - if:
+          condition:
+            and:
+              - api.connected:
+              - switch.is_off: mic_mute
+              - not:
+                  micro_wake_word.is_running:
+          then:
+            - logger.log: "Wake watchdog: micro_wake_word down, restarting"
+            - micro_wake_word.start:
 
 # Blink = timestamp; eyes.h renders the close/hold/open curve time-continuously
 script:
