@@ -80,7 +80,18 @@ psram:
   speed: 80MHz
 
 logger:
-  level: INFO   # bump to DEBUG when troubleshooting audio
+  # DEBUG globally for the micro_wake_word death hunt (2026-07-17); noisy
+  # components quieted below. Logs cost ~nothing unless a log client attaches.
+  level: DEBUG
+  logs:
+    sensor: INFO
+    text_sensor: INFO
+    number: INFO
+    light: INFO
+    switch: INFO
+    api: INFO
+    wifi: INFO
+    mipi_spi: INFO
   # Hardware UART on GPIO43/44 is repurposed to read the tethered ESP32-CAM's
   # boot log (SH1.0 Pin 9/10). Logger output goes via WiFi (native API) only —
   # access with: esphome logs dualeye.yaml --device dualeye.local
@@ -171,6 +182,10 @@ globals:
     type: float
     restore_value: no
     initial_value: '0.0'
+  - id: wake_deaths
+    type: int
+    restore_value: no
+    initial_value: '0'
   # Iris ring color - follows HA weather condition
   - id: iris_r
     type: int
@@ -181,6 +196,17 @@ globals:
   - id: iris_b
     type: int
     initial_value: '170'
+
+# Diagnostic: counts silent wake-engine deaths (watchdog restarts). A rising
+# count's TIMING in HA history is the root-cause evidence.
+sensor:
+  - platform: template
+    id: wake_death_counter
+    name: Wake Engine Deaths
+    icon: mdi:heart-pulse
+    accuracy_decimals: 0
+    entity_category: diagnostic
+    update_interval: never
 
 # Weather condition from HA tints the iris (idea #4)
 text_sensor:
@@ -274,9 +300,10 @@ interval:
             lambda: 'return id(eye_state) == 0;'   # only blink when idle
           then:
             - script.execute: do_blink
-  # Self-healing wake word: start races mic init after reboots/reconnects and
-  # loses silently (recurring 2026-07-16/17). If HA is connected, mic unmuted,
-  # and detection is not running - restart it. Cures all root causes at once.
+  # Wake watchdog doubles as INSTRUMENTATION for the root-cause hunt:
+  # every silent death increments a sensor visible in HA history, so death
+  # times can be correlated with voice sessions / reconnects without
+  # attaching a log client (which perturbs the system - L292).
   - interval: 30s
     then:
       - if:
@@ -287,7 +314,14 @@ interval:
               - not:
                   micro_wake_word.is_running:
           then:
-            - logger.log: "Wake watchdog: micro_wake_word down, restarting"
+            - logger.log:
+                level: WARN
+                format: "Wake watchdog: micro_wake_word found dead, restarting (death #%d)"
+                args: ["id(wake_deaths) + 1"]
+            - lambda: 'id(wake_deaths) += 1;'
+            - sensor.template.publish:
+                id: wake_death_counter
+                state: !lambda 'return id(wake_deaths);'
             - micro_wake_word.start:
 
 # Blink = timestamp; eyes.h renders the close/hold/open curve time-continuously
