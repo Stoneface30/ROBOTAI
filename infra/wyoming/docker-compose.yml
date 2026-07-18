@@ -66,6 +66,7 @@ services:
     command: >
       --custom-model-dir /custom
       --preload-model mister_robot
+      --threshold 0.8
       --uri tcp://0.0.0.0:10400
 
 volumes:
