@@ -240,17 +240,21 @@ output:
     pin: ${lcd2_bl}
     id: bl_right_out
 
+# entity_category config: keeps the eye backlights out of "turn off all the
+# lights" area commands — a goodnight routine blacked out the eyes 2026-07-18.
 light:
   - platform: binary
     output: bl_left_out
     id: bl_left
     name: Left Eye Backlight
     restore_mode: ALWAYS_ON
+    entity_category: config
   - platform: binary
     output: bl_right_out
     id: bl_right
     name: Right Eye Backlight
     restore_mode: ALWAYS_ON
+    entity_category: config
 
 display:
   - platform: mipi_spi
