@@ -32,7 +32,7 @@ services:
       - TZ=America/Toronto
       - WHISPER_MODEL=medium-int8
       - WHISPER_BEAM=5
-      - WHISPER_LANG=en
+      - WHISPER_LANG=auto  # multilingual family: en/fr/es auto-detect (Conchita persona)
     ports:
       - "10300:10300"
     volumes:
