@@ -125,3 +125,20 @@ Open question: do we want Mister Robot to sound like (a) a fictional character (
 - [Ollama HA integration](https://www.home-assistant.io/integrations/ollama/)
 - [xiaozhi-esp32 WebSocket protocol (for context, not chosen)](https://github.com/78/xiaozhi-esp32/blob/main/docs/websocket.md)
 - [Willow hardware support (rejected)](https://heywillow.io/hardware/)
+
+## Multilingual voices (implemented 2026-07-26)
+
+Three assist pipelines share the same brain (conversation.mister_robot), the same
+auto-detect Whisper STT, and the same wake word — they differ only in TTS voice:
+
+| Pipeline | TTS voice | For |
+|---|---|---|
+| Mister Robot (default) | en_GB-northern_english_male-medium | English |
+| Mister Robot FR | fr_FR-siwis-medium | Jean-Benoit in French |
+| Mister Robot ES | es_ES-davefx-medium | Elena |
+
+HA pipelines cannot switch TTS voice per detected language mid-conversation, so the
+active pipeline decides the reply voice. Switching (both satellites at once) is by
+voice — "spanish mode" / "french mode" / "english mode" — via exposed scripts
+(script.spanish_mode etc.) that flip the satellites' assistant selects, or manually
+in HA. STT understands all three languages in any mode; only the reply voice differs.
