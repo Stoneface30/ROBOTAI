@@ -1,0 +1,48 @@
+# Frigate config — robot's ESP32-CAM (OV2640, MJPEG over HTTP).
+# The ESP32-CAM serves MJPEG at http://192.168.0.104:8080/stream once the
+# camera-phase firmware (esp32_camera_web_server) is flashed and powered.
+mqtt:
+  host: 192.168.0.166
+  port: 1883
+  user: mqtt_user
+  password: vamito
+  topic_prefix: frigate
+
+detectors:
+  # CPU detector ships a bundled model and is plenty for one 5fps 640x480
+  # camera. ONNX/GPU needs an explicit model file — upgrade later if more
+  # cameras join.
+  cpu1:
+    type: cpu
+
+ffmpeg:
+  # MJPEG input needs explicit demuxer hints
+  input_args: -avoid_negative_ts make_zero -fflags nobuffer -flags low_delay
+
+cameras:
+  robot_eye:
+    enabled: true
+    ffmpeg:
+      inputs:
+        # multipart MJPEG — let ffmpeg autodetect (forcing -f mjpeg breaks
+        # boundary parsing and yields zero frames)
+        - path: http://192.168.0.104:8080/
+          input_args: -avoid_negative_ts make_zero -fflags nobuffer -use_wallclock_as_timestamps 1
+          roles: [detect, record]
+    detect:
+      width: 640
+      height: 480
+      fps: 3   # ESP32-CAM delivers ~3fps sustained under continuous streaming
+    objects:
+      track: [person]
+      filters:
+        person:
+          min_score: 0.6
+          threshold: 0.72
+    record:
+      enabled: false   # enable later for the timelapse idea (#42)
+    snapshots:
+      enabled: true
+      retain:
+        default: 3
+version: 0.17-0
