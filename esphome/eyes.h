@@ -32,7 +32,7 @@ static constexpr int EYE_R = 110;  // sclera radius
 // ---------- Expression table ----------------------------------------------
 
 enum : uint8_t {  // animation function ids (indexes into EYE_ANIMS)
-  A_NONE = 0, A_ORBIT, A_BOB, A_SILLY, A_PAN, A_THINK,
+  A_NONE = 0, A_ORBIT, A_BOB, A_SILLY, A_PAN, A_THINK, A_TALK,
   A_COUNT
 };
 
@@ -56,7 +56,7 @@ static constexpr EyeExpression EYE_EXPRESSIONS[] = {
   /* 0 idle      */ {38, 0,   0, A_NONE,  0, 0, 0, 0},
   /* 1 listening */ {52, 0,   0, A_NONE,  0, 0, 0, 0},   // dilated
   /* 2 thinking  */ {34, 0, -35, A_THINK, 0, 0, 0, 0},   // glance up + ponder
-  /* 3 speaking  */ {44, 0,   0, A_NONE,  0, 0, 0, 0},
+  /* 3 speaking  */ {44, 0,   0, A_TALK,  0, 0, 0, 0},   // syllable rhythm
   /* 4 error     */ {30, 0,   0, A_NONE,  F_SCLERA_OVERRIDE | F_NO_SEASON,
                      255, 60, 60},                        // red, pinprick
   /* 5 sleepy    */ {30, 0,  28, A_NONE,  F_DROOPY_LID, 0, 0, 0},
@@ -108,8 +108,22 @@ static inline void anim_think(float t, bool, float &px, float &py, float &pr) {
   pr += 3.0f * sinf(t * 2.2f);
 }
 
+// Speaking: the eyes "talk". Layered incommensurate sines make an irregular,
+// speech-like cadence (~4-5 syllables/sec) without needing the real audio
+// envelope — the pupil swells and the eye nods on each syllable, which reads
+// as speech far better than a static stare. Both eyes share t, so they stay
+// in lockstep.
+static inline void anim_talk(float t, bool, float &px, float &py, float &pr) {
+  float s = 0.55f * sinf(t * 27.0f) + 0.30f * sinf(t * 41.3f)
+          + 0.15f * sinf(t * 17.7f);
+  float open = fabsf(s);              // 0..1 "aperture" per syllable
+  pr += 11.0f * open;                 // pupil swells as it speaks
+  py += 5.0f * open;                  // small nod on each beat
+  px += 2.0f * sinf(t * 6.0f);        // gentle sway while talking
+}
+
 static const EyeAnimFn EYE_ANIMS[A_COUNT] = {
-  anim_none, anim_orbit, anim_bob, anim_silly, anim_pan, anim_think,
+  anim_none, anim_orbit, anim_bob, anim_silly, anim_pan, anim_think, anim_talk,
 };
 
 // ---------- Feature drawers -------------------------------------------------
