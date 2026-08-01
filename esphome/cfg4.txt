@@ -1,0 +1,8 @@
+INFO ESPHome 2026.4.5
+INFO Reading configuration dualeye.yaml...
+ERROR Error while reading config: Invalid YAML syntax:
+
+Duplicate key "update_interval"
+  in "dualeye.yaml", line 242, column 5
+NOTE: Previous declaration here:
+  in "dualeye.yaml", line 240, column 5

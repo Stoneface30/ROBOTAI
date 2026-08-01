@@ -1,0 +1,21 @@
+INFO ESPHome 2026.4.5
+INFO Reading configuration dualeye.yaml...
+INFO Detected timezone 'Europe/London'
+WARNING GPIO46 is a strapping PIN and should only be used for I/O with care.
+Attaching external pullup/down resistors to strapping pins can cause unexpected failures.
+See https://esphome.io/guides/faq/#why-am-i-getting-a-warning-about-strapping-pins
+WARNING GPIO45 is a strapping PIN and should only be used for I/O with care.
+Attaching external pullup/down resistors to strapping pins can cause unexpected failures.
+See https://esphome.io/guides/faq/#why-am-i-getting-a-warning-about-strapping-pins
+WARNING GPIO45 is a strapping PIN and should only be used for I/O with care.
+Attaching external pullup/down resistors to strapping pins can cause unexpected failures.
+See https://esphome.io/guides/faq/#why-am-i-getting-a-warning-about-strapping-pins
+WARNING GPIO0 is a strapping PIN and should only be used for I/O with care.
+Attaching external pullup/down resistors to strapping pins can cause unexpected failures.
+See https://esphome.io/guides/faq/#why-am-i-getting-a-warning-about-strapping-pins
+INFO Starting log output from 192.168.0.213 using esphome API
+INFO Successfully resolved dualeye @ 192.168.0.213 in 0.000s
+INFO Successfully connected to dualeye @ 192.168.0.213 in 0.016s
+INFO Successful handshake with dualeye @ 192.168.0.213 in 0.928s
+[22:05:51.839][I][app:154]: ESPHome version 2026.4.5 compiled on 2026-07-16 22:04:26 +0100
+[22:05:51.839][I][app:161]: ESP32 Chip: ESP32-S3 rev0.2, 2 core(s)
