@@ -32,7 +32,7 @@ services:
       - TZ=America/Toronto
       - WHISPER_MODEL=medium-int8
       - WHISPER_BEAM=5
-      - WHISPER_LANG=auto  # multilingual family: en/fr/es auto-detect (Conchita persona)
+      - WHISPER_LANG=en  # English-only (2026-08-02): the Wyoming provider only advertises en, and auto-detect misfires on short commands
     ports:
       - "10300:10300"
     volumes:
