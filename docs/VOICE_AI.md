@@ -161,3 +161,11 @@ it is a context-window bug.
 English-only rule). keep_alive -1 pins it, but other local tooling loading
 gemma4:e4b (10.2GB) still evicts it on a 16GB card, which shows up as a
 sporadic ~20s answer. Windows task `RobotAI-KeepLLMWarm` re-warms every 30min.
+
+**`stt_language: auto` silently kills every voice request.** Set on 2026-07-25
+for multilingual input; the Wyoming faster-whisper provider advertises only
+`['en']` and rejects `auto` with `stt-provider-unsupported-metadata`. The
+pipeline then aborts in 0.0s with no stages: the robot chimes and never
+answers, and nothing in the HA log points at the pipeline. Always cross-check
+`stt_language` against the provider's advertised `supported_languages`.
+Multilingual input would need a provider that advertises those languages.
