@@ -142,3 +142,22 @@ active pipeline decides the reply voice. Switching (both satellites at once) is 
 voice — "spanish mode" / "french mode" / "english mode" — via exposed scripts
 (script.spanish_mode etc.) that flip the satellites' assistant selects, or manually
 in HA. STT understands all three languages in any mode; only the reply voice differs.
+
+## Operational notes (2026-08-02)
+
+**Wyoming integrations fail silently.** whisper/piper/openwakeword entered
+`setup_error` after a container blip and stayed there: the robot chimed on the
+wake word but could never answer ("TTS engine tts.piper not found"). HA does
+not retry these. `automation.robot_voice_selfheal` now reloads them when
+tts.piper or stt.faster_whisper is unavailable for 2 minutes, and raises a
+persistent notification if the reload does not fix it.
+
+**Ollama num_ctx must be >= 8192.** 4096 truncates HA's exposed-entity list
+inside the prompt, so the model reports it "cannot find the kitchen light"
+while every entity is exposed and healthy. Symptom looks like an exposure bug;
+it is a context-window bug.
+
+**Model residency.** conversation agent = qwen2.5:7b (3b cannot hold the
+English-only rule). keep_alive -1 pins it, but other local tooling loading
+gemma4:e4b (10.2GB) still evicts it on a 16GB card, which shows up as a
+sporadic ~20s answer. Windows task `RobotAI-KeepLLMWarm` re-warms every 30min.
