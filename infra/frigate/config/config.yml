@@ -27,7 +27,11 @@ cameras:
         # multipart MJPEG — let ffmpeg autodetect (forcing -f mjpeg breaks
         # boundary parsing and yields zero frames)
         - path: http://192.168.0.104:8080/
+          # ESP32-CAM drops long-lived MJPEG connections; without these
+          # reconnect flags ffmpeg exits and Frigate goes to 0 fps.
           input_args: -avoid_negative_ts make_zero -fflags nobuffer -use_wallclock_as_timestamps 1
+            -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1
+            -reconnect_delay_max 5 -rw_timeout 10000000
           roles: [detect, record]
     detect:
       width: 640
