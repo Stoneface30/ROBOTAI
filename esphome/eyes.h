@@ -113,13 +113,21 @@ static inline void anim_think(float t, bool, float &px, float &py, float &pr) {
 // envelope — the pupil swells and the eye nods on each syllable, which reads
 // as speech far better than a static stare. Both eyes share t, so they stay
 // in lockstep.
-static inline void anim_talk(float t, bool, float &px, float &py, float &pr) {
-  float s = 0.55f * sinf(t * 27.0f) + 0.30f * sinf(t * 41.3f)
-          + 0.15f * sinf(t * 17.7f);
-  float open = fabsf(s);              // 0..1 "aperture" per syllable
-  pr += 11.0f * open;                 // pupil swells as it speaks
-  py += 5.0f * open;                  // small nod on each beat
-  px += 2.0f * sinf(t * 6.0f);        // gentle sway while talking
+// Speech amplitude peaks at ~4.9 Hz across all languages (~200 ms/syllable),
+// but at 15 FPS that is only 3 frames per syllable, so we run at ~4 Hz where
+// the motion is still natural AND legible. The ^1.4 exponent gives the
+// asymmetric fast-attack/slow-decay of a real syllable instead of a symmetric
+// sine — rise time is the acoustic cue the brain actually tracks.
+static inline void anim_talk(float t, bool right_eye, float &px, float &py, float &pr) {
+  const float syll = 0.5f - 0.5f * cosf(t * 25.1f);       // ~4 Hz, 0..1
+  float open = powf(syll, 1.4f);                          // sharpen the attack
+  open *= 0.70f + 0.30f * (0.5f + 0.5f * sinf(t * 10.1f)); // stress every 2-3 syl
+  open *= 0.85f + 0.15f * sinf(t * 3.7f);                  // word-level envelope
+  if (open < 0.10f) open = 0.0f;                           // crisp pauses
+  pr += 12.0f * open;                  // pupil swells with each syllable
+  py += 5.0f * open;                   // nod on the beat
+  py -= 3.0f * open;                   // eyes widen slightly as it speaks
+  px += (right_eye ? -1.0f : 1.0f) * 1.5f * sinf(t * 1.9f);  // asymmetric sway
 }
 
 static const EyeAnimFn EYE_ANIMS[A_COUNT] = {
@@ -130,11 +138,36 @@ static const EyeAnimFn EYE_ANIMS[A_COUNT] = {
 
 // Blink profile from elapsed ms since blink_start: quick close (110 ms),
 // brief hold (80 ms), slower open (140 ms). Continuous — sampled per frame.
+// Real blinks are strongly ASYMMETRIC: the lid snaps shut and drifts back open
+// ~2.4x slower (Ponz 2018: 148ms close / 244ms open; Disney Research found
+// symmetric blinks read as unnatural). Close is eased-in (accelerating), open
+// is eased-out (asymptotic return).
 static inline float blink_profile(uint32_t elapsed_ms) {
-  if (elapsed_ms < 110) return elapsed_ms / 110.0f;
-  if (elapsed_ms < 190) return 1.0f;
-  if (elapsed_ms < 330) return 1.0f - (elapsed_ms - 190) / 140.0f;
+  if (elapsed_ms < 80) {                       // close: fast, accelerating
+    float u = elapsed_ms / 80.0f;
+    return u * u * (1.7f - 0.7f * u);
+  }
+  if (elapsed_ms < 130) return 1.0f;           // hold fully closed
+  if (elapsed_ms < 320) {                      // open: slow, decelerating
+    float u = (elapsed_ms - 130) / 190.0f;
+    return 1.0f - (u * (2.0f - u));
+  }
   return 0.0f;
+}
+
+// Idle "alive" layer: two slow, low-amplitude oscillators that are deliberately
+// ASYMMETRIC between the eyes. Perfectly synchronised eyes read as mechanical;
+// this is the cheapest trick that separates "a drawing of eyes" from "eyes".
+static inline void apply_idle_variation(float t, bool right_eye,
+                                        float &px, float &py, float &pr) {
+  const float a1 = right_eye ? 3.0f : 2.0f;    // per-eye amplitudes differ
+  const float a2 = right_eye ? 1.0f : 2.0f;
+  const float ph = right_eye ? 0.0f : 0.6f;    // and phases
+  pr += a1 * sinf(t * 1.25f + ph);             // ~0.8 s breathing
+  py += a2 * sinf(t * 0.9f + ph * 1.7f);
+  px += 1.5f * sinf(t * 0.6f + ph);
+  // Microsaccades: 1-3/sec, ~1-2 px. Tiny, but the eye is never truly still.
+  px += 1.2f * sinf(t * 13.0f + ph * 3.1f) * (sinf(t * 2.3f) > 0.6f ? 1.0f : 0.0f);
 }
 
 // Friendly trash bin in place of the pupil (state 9 "bin night").
@@ -240,6 +273,12 @@ static inline void draw_robot_eye(esphome::display::Display &it, int state,
     // Target pupil geometry: table row + the state's animation function.
     float tx = CX + ex.px_off, ty = CY + ex.py_off, tr = ex.pupil_r;
     EYE_ANIMS[ex.anim](t, right_eye, tx, ty, tr);
+    // Always-on idle layer (skipped for the bin icon and the error pinprick)
+    if (!(ex.flags & (F_BIN_ICON | F_SCLERA_OVERRIDE)))
+      apply_idle_variation(t, right_eye, tx, ty, tr);
+    // Slight permanent convergence: real eyes fixate at conversational
+    // distance, so both pupils sit a few px toward the nose (Uncanny Eyes).
+    tx += right_eye ? -4.0f : 4.0f;
 
     // Exponential smoothing toward the target — state changes glide instead
     // of snapping, and animation motion is softened. Per-eye state ([0]=left,

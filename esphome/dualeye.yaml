@@ -118,6 +118,11 @@ wifi:
   ssid: !secret wifi_ssid
   password: !secret wifi_password
   power_save_mode: none
+  # 2026-08-02: robot showed 50% packet loss (wake chimed, audio never
+  # reached HA). Max TX power + fast reconnect + a WiFi signal sensor so the
+  # link quality is visible instead of guessed.
+  output_power: 20dB
+  fast_connect: true
   reboot_timeout: 10min
   ap:
     ssid: "DualEye Setup"
@@ -200,6 +205,16 @@ globals:
 # Diagnostic: counts silent wake-engine deaths (watchdog restarts). A rising
 # count's TIMING in HA history is the root-cause evidence.
 sensor:
+  # Link quality — the 2026-08-02 packet-loss outage was invisible without it
+  - platform: wifi_signal
+    name: Robot WiFi Signal
+    id: robot_wifi_rssi
+    update_interval: 60s
+    entity_category: diagnostic
+  - platform: uptime
+    name: Robot Uptime
+    entity_category: diagnostic
+    update_interval: 60s
   - platform: template
     id: wake_death_counter
     name: Wake Engine Deaths
@@ -266,6 +281,11 @@ display:
       number: ${lcd_dc}
       allow_other_uses: true
     reset_pin: ${lcd1_rst}
+    # ESPHome's mipi_spi data_rate DEFAULTS TO 10MHz: two 240x240 frames then
+    # take ~184ms of blocking CPU against a 66ms budget, which starved the
+    # wake-word ring buffer and the WiFi stack. 40MHz is the GPIO-matrix
+    # ceiling for these pins (IOMUX would allow 80).
+    data_rate: 40MHz
     invert_colors: true
     rotation: 90   # panels are physically mounted rotated 90° in the head
     update_interval: 66ms   # 15 FPS — 20 FPS starved micro_wake_word ring buffer (L292 era bug #2)
@@ -284,6 +304,7 @@ display:
       number: ${lcd_dc}
       allow_other_uses: true
     reset_pin: ${lcd2_rst}
+    data_rate: 40MHz
     invert_colors: true
     # No mirror transform: vendor config.h sets LCD2 MIRROR_X/Y=false. The old
     # mirror flags made 'thinking' look up on one eye and down on the other.
